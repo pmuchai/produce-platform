@@ -50,9 +50,10 @@ $env:DB_PASSWORD = $credential.GetNetworkCredential().Password
 ```
 
 `DB_URL` and `DB_USERNAME` have the defaults shown above. `DB_PASSWORD` is
-required and has no fallback. Never commit real credentials. `.env.example`
-documents the variable names, but Spring Boot does **not** automatically load
-`.env` files. Real `.env` files are ignored by Git.
+required and has no fallback. Never commit real credentials. All `.env` files,
+including `.env.example`, are ignored by Git. Keep any local configuration
+private and use the variable names documented above. Spring Boot does **not**
+automatically load `.env` files.
 
 For IntelliJ, use JDK 25 and set these variables in the
 `ProducePlatformApplication` run configuration. Do not share a run configuration
