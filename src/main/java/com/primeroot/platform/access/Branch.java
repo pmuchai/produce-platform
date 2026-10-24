@@ -56,4 +56,5 @@ public class Branch {
 	public String getAddress() { return address; }
 	public boolean isActive() { return active; }
 	public Instant getCreatedAt() { return createdAt; }
+	public long getVersion() { return version; }
 }

@@ -84,12 +84,29 @@ abstract class OidcTestSupport {
 				Map.entry(csrf.get("headerName").asText(), csrf.get("token").asText()));
 		}
 
+		HttpResponse<String> mutateWithIfMatch(String method, String path, Object body, String ifMatch)
+				throws Exception {
+			var csrfResponse = get("/api/auth/csrf");
+			assertThat(csrfResponse.statusCode()).isEqualTo(200);
+			var csrf = json.readTree(csrfResponse.body());
+			return send(method, URI.create("http://localhost:" + port + path), body,
+				Map.entry(csrf.get("headerName").asText(), csrf.get("token").asText()), ifMatch);
+		}
+
 		HttpResponse<String> send(String method, URI uri, Object body, Map.Entry<String, String> csrf) throws Exception {
+			return send(method, uri, body, csrf, null);
+		}
+
+		HttpResponse<String> send(String method, URI uri, Object body, Map.Entry<String, String> csrf,
+				String ifMatch) throws Exception {
 			var request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10))
 				.header("Accept", "/home".equals(uri.getPath()) || uri.getPath().startsWith("/ui/")
 					? "text/html" : "application/json");
 			if (csrf != null) {
 				request.header(csrf.getKey(), csrf.getValue());
+			}
+			if (ifMatch != null) {
+				request.header("If-Match", ifMatch);
 			}
 			if (body != null) {
 				request.header("Content-Type", "application/json");

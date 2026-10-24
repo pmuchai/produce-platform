@@ -195,10 +195,10 @@ to the identity provider.
 | GET | `/api/branches` | Branches visible to the current staff member |
 | GET | `/api/branches/{id}` | Branch within scope |
 | POST | `/api/branches` | `BRANCH_MANAGE` and global scope; 201 with Location |
-| PUT | `/api/branches/{id}` | `BRANCH_MANAGE` within scope |
+| PUT | `/api/branches/{id}` | `BRANCH_MANAGE` within scope; requires the current `If-Match` ETag |
 | GET | `/api/users` | `USER_VIEW` and global scope |
 | POST | `/api/users` | `USER_MANAGE` and global scope; 201 with Location |
-| PUT | `/api/users/{id}` | `USER_MANAGE` and global scope |
+| PUT | `/api/users/{id}` | `USER_MANAGE` and global scope; requires the current `If-Match` ETag |
 | GET | `/api/audit-events` | `AUDIT_VIEW` and global scope; latest 100 events |
 
 The left sidebar provides Dashboard, Sales, Receivables / Stock entries,
@@ -338,8 +338,12 @@ Keycloak has ended the SSO session.
 
 Errors use `application/problem+json`: 400 invalid input, 401 absent/expired/
 revoked authentication, 403 insufficient access or invalid/missing CSRF,
-404 absent resource, and 409 duplicate/conflicting/concurrent edits. Errors
-never include credentials, tokens or rejected secret values.
+404 absent resource, 409 duplicate/conflicting/concurrent edits, 412 stale
+update precondition and 428 missing update precondition. Branch and staff
+responses include a `version`; individual branch responses and create/update
+responses also include its quoted version as an `ETag`. Send that value in
+`If-Match` on updates. Staff versions are available in the `/api/users` list.
+Errors never include credentials, tokens or rejected secret values.
 
 Local staff updates revoke existing sessions on their next request.
 Permissions are a snapshot of the ID token: Keycloak role changes, account

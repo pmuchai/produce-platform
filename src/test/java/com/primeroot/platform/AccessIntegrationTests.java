@@ -359,6 +359,23 @@ class AccessIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void expiredIdentityTokenRedirectsLandingPagesToSignIn() throws Exception {
+		try (var homeBrowser = browser(); var rootBrowser = browser()) {
+			assertThat(homeBrowser.login(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS,
+				OidcTestProvider.Fault.SHORT_LIVED).statusCode()).isEqualTo(200);
+			assertThat(rootBrowser.login(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS,
+				OidcTestProvider.Fault.SHORT_LIVED).statusCode()).isEqualTo(200);
+			TimeUnit.SECONDS.sleep(4);
+			for (var response : List.of(homeBrowser.get("/home"), rootBrowser.get("/"))) {
+				assertThat(response.statusCode()).isEqualTo(302);
+				assertThat(URI.create(response.headers().firstValue("Location").orElseThrow()).getPath())
+					.isEqualTo("/oauth2/authorization/keycloak");
+			}
+			assertThat(homeBrowser.get("/api/auth/me").statusCode()).isEqualTo(401);
+		}
+	}
+
+	@Test
 	void branchesAndStaffHaveExplicitScopeAndLocalChangesRevokeSessions() throws Exception {
 		try (var admin = browser(); var operator = browser()) {
 			admin.adminLogin();
@@ -374,18 +391,22 @@ class AccessIntegrationTests extends OidcTestSupport {
 			assertThat(operator.get("/api/branches").body()).contains(north).doesNotContain(south);
 			assertThat(operator.get("/api/branches/" + south).statusCode()).isEqualTo(403);
 			assertThat(operator.mutate("PUT", "/api/branches/" + south, branch("south", true)).statusCode()).isEqualTo(403);
-			assertThat(operator.mutate("PUT", "/api/branches/" + north, branch("north", true)).statusCode()).isEqualTo(200);
+			var northEtag = operator.get("/api/branches/" + north).headers().firstValue("ETag").orElseThrow();
+			assertThat(operator.mutateWithIfMatch("PUT", "/api/branches/" + north, branch("north", true), northEtag)
+				.statusCode()).isEqualTo(200);
 			assertThat(operator.mutate("POST", "/api/branches", branch("extra", true)).statusCode()).isEqualTo(403);
 			assertThat(operator.get("/api/users").statusCode()).isEqualTo(403);
 			assertThat(operator.mutate("POST", "/api/users", Map.of("username", "forbidden", "fullName", "Forbidden",
 				"subject", "forbidden", "allBranches", true, "branchIds", Set.of())).statusCode()).isEqualTo(403);
-			assertThat(admin.mutate("PUT", "/api/users/" + id, Map.of(
-				"fullName", "Branch Operator", "active", true, "allBranches", false, "branchIds", Set.of(south))).statusCode()).isEqualTo(200);
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/users/" + id, Map.of(
+				"fullName", "Branch Operator", "active", true, "allBranches", false, "branchIds", Set.of(south)),
+				provision.headers().firstValue("ETag").orElseThrow()).statusCode()).isEqualTo(200);
 			assertThat(operator.get("/api/auth/me").statusCode()).isEqualTo(401);
 			assertThat(operator.login("operator-subject", List.of("BRANCH_VIEW"), OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
 			assertThat(operator.get("/api/branches").body()).contains(south).doesNotContain(north);
-			assertThat(admin.mutate("PUT", "/api/users/" + id, Map.of(
-				"fullName", "Branch Operator", "active", false, "allBranches", false, "branchIds", Set.of(south))).statusCode()).isEqualTo(200);
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/users/" + id, Map.of(
+				"fullName", "Branch Operator", "active", false, "allBranches", false, "branchIds", Set.of(south)),
+				userEtag(admin, id)).statusCode()).isEqualTo(200);
 			assertThat(operator.get("/api/auth/me").statusCode()).isEqualTo(401);
 			assertThat(operator.login("operator-subject", ALL_PERMISSIONS, OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(403);
 		}
@@ -421,7 +442,9 @@ class AccessIntegrationTests extends OidcTestSupport {
 			assertThat(admin.mutate("POST", "/api/users", Map.of("username", "operator", "fullName", "Operator",
 				"subject", "operator-subject", "allBranches", false, "branchIds", Set.of(north))).statusCode()).isEqualTo(201);
 			assertThat(operator.login("operator-subject", List.of("BRANCH_VIEW"), OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
-			assertThat(admin.mutate("PUT", "/api/branches/" + north, branch("north", false)).statusCode()).isEqualTo(200);
+			var etag = admin.get("/api/branches/" + north).headers().firstValue("ETag").orElseThrow();
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/branches/" + north, branch("north", false), etag)
+				.statusCode()).isEqualTo(200);
 			assertThat(operator.get("/api/branches").body()).isEqualTo("[]");
 			assertThat(operator.get("/api/branches/" + north).statusCode()).isEqualTo(403);
 			assertThat(admin.mutate("POST", "/api/users", Map.of("username", "blocked", "fullName", "Blocked",
@@ -440,10 +463,55 @@ class AccessIntegrationTests extends OidcTestSupport {
 			var north = createBranch(admin, "north");
 			assertThat(admin.mutate("POST", "/api/branches", branch("NORTH", true)).statusCode()).isEqualTo(409);
 			assertThat(admin.get("/api/branches/" + UUID.randomUUID()).statusCode()).isEqualTo(404);
-			assertThat(admin.mutate("PUT", "/api/users/" + id, Map.of(
-				"fullName", "Administrator", "active", false, "allBranches", true, "branchIds", Set.of())).statusCode()).isEqualTo(409);
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/users/" + id, Map.of(
+				"fullName", "Administrator", "active", false, "allBranches", true, "branchIds", Set.of()),
+				userEtag(admin, id)).statusCode()).isEqualTo(409);
 			assertThat(admin.get("/api/audit-events").statusCode()).isEqualTo(200);
 			assertThat(admin.get("/api/audit-events").body()).contains("BRANCH_CREATED", north, "STAFF_BOOTSTRAPPED", "OIDC_LOGIN");
+		}
+	}
+
+	@Test
+	void branchAndStaffUpdatesRejectMissingAndStaleVersionPreconditions() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branchResponse = admin.mutate("POST", "/api/branches", branch("north", true));
+			var branchId = admin.body(branchResponse).get("id").asText();
+			var originalBranchEtag = branchResponse.headers().firstValue("ETag").orElseThrow();
+			assertThat(admin.body(branchResponse).get("version").asLong()).isZero();
+			assertThat(admin.get("/api/branches/" + branchId).headers().firstValue("ETag").orElseThrow())
+				.isEqualTo(originalBranchEtag);
+			assertThat(admin.mutate("PUT", "/api/branches/" + branchId, branch("north", false)).statusCode())
+				.isEqualTo(428);
+			var branchUpdate = admin.mutateWithIfMatch("PUT", "/api/branches/" + branchId,
+				Map.of("code", "north", "name", "Updated North", "address", "Market Road", "active", true),
+				originalBranchEtag);
+			assertThat(branchUpdate.statusCode()).isEqualTo(200);
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/branches/" + branchId,
+				branch("changed", false), originalBranchEtag).statusCode()).isEqualTo(412);
+			assertThat(admin.get("/api/branches/" + branchId).body()).contains("\"code\":\"NORTH\"")
+				.contains("\"name\":\"Updated North\"")
+				.contains("\"active\":true");
+
+			var staffResponse = admin.mutate("POST", "/api/users", Map.of(
+				"username", "operator", "fullName", "Operator", "subject", "operator-subject",
+				"allBranches", true, "branchIds", Set.of()));
+			var staffId = admin.body(staffResponse).get("id").asText();
+			var originalStaffEtag = staffResponse.headers().firstValue("ETag").orElseThrow();
+			assertThat(admin.body(staffResponse).get("version").asLong()).isZero();
+			assertThat(admin.mutate("PUT", "/api/users/" + staffId, Map.of(
+				"fullName", "Missing precondition", "active", true, "allBranches", true, "branchIds", Set.of()))
+				.statusCode()).isEqualTo(428);
+			var staffUpdate = admin.mutateWithIfMatch("PUT", "/api/users/" + staffId, Map.of(
+				"fullName", "Updated", "active", true, "allBranches", true, "branchIds", Set.of()),
+				originalStaffEtag);
+			assertThat(staffUpdate.statusCode()).isEqualTo(200);
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/users/" + staffId, Map.of(
+				"fullName", "Stale", "active", false, "allBranches", false, "branchIds", Set.of()),
+				originalStaffEtag).statusCode()).isEqualTo(412);
+			assertThat(userEtag(admin, staffId)).isNotEqualTo(originalStaffEtag);
+			assertThat(admin.get("/api/users").body()).contains("\"fullName\":\"Updated\"")
+				.doesNotContain("\"fullName\":\"Stale\"");
 		}
 	}
 
@@ -488,6 +556,16 @@ class AccessIntegrationTests extends OidcTestSupport {
 		var response = admin.mutate("POST", "/api/branches", branch(code, true));
 		assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(201);
 		return admin.body(response).get("id").asText();
+	}
+
+	private String userEtag(Browser admin, String id) throws Exception {
+		var users = admin.body(admin.get("/api/users"));
+		for (var user : users) {
+			if (id.equals(user.get("id").asText())) {
+				return "\"" + user.get("version").asLong() + "\"";
+			}
+		}
+		throw new AssertionError("Staff member not found: " + id);
 	}
 
 	private Map<String, Object> branch(String code, boolean active) {

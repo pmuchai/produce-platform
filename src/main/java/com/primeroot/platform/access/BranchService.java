@@ -53,17 +53,30 @@ public class BranchService {
 	}
 
 	@Transactional
-	public BranchResponse update(UUID id, BranchRequest request) {
+	public BranchResponse update(UUID id, BranchRequest request, String ifMatch) {
 		var actor = access.requirePermission(Permission.BRANCH_MANAGE);
 		access.requireBranch(id);
 		var branch = find(id);
+		requireMatchingVersion(ifMatch, branch.getVersion());
 		var code = request.code().toUpperCase(Locale.ROOT);
 		if (branches.existsByCodeAndIdNot(code, id)) {
 			throw new ResponseStatusException(HttpStatus.CONFLICT, "Branch code already exists");
 		}
 		branch.update(code, request.name(), request.address(), request.active());
+		branches.saveAndFlush(branch);
 		audit.save(new AuditEvent(actor.getId(), "BRANCH_UPDATED", "BRANCH", id));
 		return BranchResponse.from(branch);
+	}
+
+	private static void requireMatchingVersion(String ifMatch, long version) {
+		if (ifMatch == null || ifMatch.isBlank()) {
+			throw new ResponseStatusException(HttpStatus.PRECONDITION_REQUIRED,
+				"An If-Match header is required");
+		}
+		if (!ifMatch.equals("\"" + version + "\"")) {
+			throw new ResponseStatusException(HttpStatus.PRECONDITION_FAILED,
+				"The branch changed; reload it and try again");
+		}
 	}
 
 	private Branch find(UUID id) {
