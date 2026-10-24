@@ -21,10 +21,10 @@ public final class AccessDtos {
 	}
 
 	public record BranchResponse(UUID id, String code, String name, String address,
-			boolean active, Instant createdAt) {
+			boolean active, Instant createdAt, long version) {
 		public static BranchResponse from(Branch branch) {
 			return new BranchResponse(branch.getId(), branch.getCode(), branch.getName(),
-				branch.getAddress(), branch.isActive(), branch.getCreatedAt());
+				branch.getAddress(), branch.isActive(), branch.getCreatedAt(), branch.getVersion());
 		}
 	}
 
@@ -44,13 +44,13 @@ public final class AccessDtos {
 	}
 
 	public record UserResponse(UUID id, String username, String fullName, String issuer, String subject,
-			boolean active, Set<UUID> branchIds, boolean allBranches, Instant createdAt) {
+			boolean active, Set<UUID> branchIds, boolean allBranches, Instant createdAt, long version) {
 		public static UserResponse from(StaffUser user) {
 			var branchIds = user.getBranches().stream().map(Branch::getId)
 				.collect(java.util.stream.Collectors.toSet());
 			return new UserResponse(user.getId(), user.getUsername(), user.getFullName(),
 				user.getIssuer(), user.getSubject(), user.isActive(), branchIds,
-				user.isAllBranches(), user.getCreatedAt());
+				user.isAllBranches(), user.getCreatedAt(), user.getVersion());
 		}
 	}
 

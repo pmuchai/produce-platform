@@ -58,18 +58,31 @@ public class StaffService {
 	}
 
 	@Transactional
-	public UserResponse update(UUID id, UpdateUserRequest request) {
+	public UserResponse update(UUID id, UpdateUserRequest request, String ifMatch) {
 		var actor = access.requireGlobalPermission(Permission.USER_MANAGE);
 		var user = users.findById(id)
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Staff member not found"));
+		requireMatchingVersion(ifMatch, user.getVersion());
 		if (actor.getId().equals(id) && (!request.active() || !request.allBranches())) {
 			throw new ResponseStatusException(HttpStatus.CONFLICT,
 				"Ask another authorized administrator to remove your own staff access");
 		}
 		user.update(request.fullName(), request.active(), request.allBranches(),
 			assignments(request.branchIds(), request.allBranches(), request.active()));
+		users.saveAndFlush(user);
 		audit.save(new AuditEvent(actor.getId(), "STAFF_UPDATED", "USER", id));
 		return UserResponse.from(user);
+	}
+
+	private static void requireMatchingVersion(String ifMatch, long version) {
+		if (ifMatch == null || ifMatch.isBlank()) {
+			throw new ResponseStatusException(HttpStatus.PRECONDITION_REQUIRED,
+				"An If-Match header is required");
+		}
+		if (!ifMatch.equals("\"" + version + "\"")) {
+			throw new ResponseStatusException(HttpStatus.PRECONDITION_FAILED,
+				"The staff record changed; reload it and try again");
+		}
 	}
 
 	@Transactional
