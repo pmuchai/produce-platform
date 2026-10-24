@@ -87,5 +87,6 @@ public class StaffUser {
 	public boolean isActive() { return active; }
 	public long getSecurityVersion() { return securityVersion; }
 	public Instant getCreatedAt() { return createdAt; }
+	public long getVersion() { return version; }
 	public Set<Branch> getBranches() { return Set.copyOf(branches); }
 }
