@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('User management')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a><aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('User management', 'Approved local staff access; credentials and roles remain in Keycloak')}"></header>
+  <section class="panel"><div class="table-scroll"><table>
+    <thead><tr><th>Username</th><th>Name</th><th>Status</th><th>Scope</th><th>Keycloak subject</th></tr></thead><tbody>
+    <tr th:each="user : ${users}"><td th:text="${user.username}"></td><td th:text="${user.fullName}"></td>
+      <td th:text="${user.active ? 'Active' : 'Inactive'}"></td>
+      <td th:text="${user.allBranches ? 'Business-wide' : user.branchIds.size() + ' assigned branches'}"></td>
+      <td th:text="${user.subject}"></td></tr>
+  </tbody></table></div></section>
+  <p class="hint">Staff approval and scope updates remain available through the Phase 1 APIs. This phase adds catalogue maintenance screens.</p>
+</main>
+</body>
+</html>

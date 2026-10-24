@@ -28,6 +28,18 @@ public class AuditService {
 			.toList();
 	}
 
+	public long count(Instant start, Instant endExclusive) {
+		access.requireGlobalPermission(Permission.AUDIT_VIEW);
+		return audit.countByOccurredAtGreaterThanEqualAndOccurredAtLessThan(start, endExclusive);
+	}
+
+	public List<AuditResponse> list(Instant start, Instant endExclusive) {
+		access.requireGlobalPermission(Permission.AUDIT_VIEW);
+		return audit.findTop100ByOccurredAtGreaterThanEqualAndOccurredAtLessThanOrderByOccurredAtDesc(start, endExclusive)
+			.stream().map(event -> new AuditResponse(event.getId(), event.getActorId(), event.getAction(),
+				event.getTargetType(), event.getTargetId(), event.getOccurredAt())).toList();
+	}
+
 	public record AuditResponse(UUID id, UUID actorId, String action, String targetType,
 			UUID targetId, Instant occurredAt) {
 	}

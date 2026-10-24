@@ -27,7 +27,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import tools.jackson.databind.json.JsonMapper;
 
-final class OidcTestProvider {
+final class OidcTestProvider implements AutoCloseable {
 	static final String CLIENT_ID = "produce-platform-test";
 	static final String CLIENT_SECRET = "test-only-client-secret";
 	static final String ADMIN_SUBJECT = "approved-admin-subject";
@@ -62,6 +62,11 @@ final class OidcTestProvider {
 
 	String issuer() {
 		return "http://localhost:" + server.getAddress().getPort() + "/realms/test";
+	}
+
+	@Override
+	public void close() {
+		server.stop(0);
 	}
 
 	void identity(String subject, Object roles, Fault fault) {

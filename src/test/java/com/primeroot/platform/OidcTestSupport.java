@@ -86,7 +86,8 @@ abstract class OidcTestSupport {
 
 		HttpResponse<String> send(String method, URI uri, Object body, Map.Entry<String, String> csrf) throws Exception {
 			var request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10))
-				.header("Accept", "/home".equals(uri.getPath()) ? "text/html" : "application/json");
+				.header("Accept", "/home".equals(uri.getPath()) || uri.getPath().startsWith("/ui/")
+					? "text/html" : "application/json");
 			if (csrf != null) {
 				request.header(csrf.getKey(), csrf.getValue());
 			}

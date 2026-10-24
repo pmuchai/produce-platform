@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Catalogue and units')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a><aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('Catalogue and units', 'Define what you trade before recording stock or sales')}"></header>
+  <div th:replace="~{layout :: notice}"></div>
+  <nav class="tabs" aria-label="Catalogue sections">
+    <a href="#products">Products</a><a href="#types">Produce types</a><a href="#classifications">Varieties &amp; grades</a>
+    <a href="#units">Units</a><a href="#packaging">Packaging conversions</a>
+  </nav>
+  <p class="hint" th:unless="${manageCatalogue}">Read-only catalogue. Business-wide CATALOGUE_MANAGE is required to make changes.</p>
+  <div class="panel search"><label>Filter catalogue rows<input type="search" id="catalogue-search" placeholder="Search by code, name or type"></label><p class="hint">Filters the tables below, not the forms.</p></div>
+
+  <section id="products" class="panel">
+    <div class="section-heading"><h2>Products</h2><span class="badge" th:text="${catalogue.products.size()} + ' definitions'"></span></div>
+    <p class="hint">Base stock units measure mass or count and cannot be changed after creation. Inactive records remain available for historical references.</p>
+    <div class="table-scroll"><table><thead><tr><th>Code</th><th>Name</th><th>Produce / classification</th><th>Base unit</th><th>Status</th><th th:if="${manageCatalogue}">Action</th></tr></thead><tbody>
+      <tr th:each="item : ${catalogue.products}" data-row><td th:text="${item.code}"></td><td th:text="${item.name}"></td>
+        <td><span th:text="${labels[item.produceTypeId]}"></span><small th:if="${item.varietyId != null}" th:text="${labels[item.varietyId]}"></small><small th:if="${item.gradeId != null}" th:text="${labels[item.gradeId]}"></small></td>
+        <td th:text="${labels[item.baseUnitId]}"></td><td th:text="${item.active ? 'Active' : 'Inactive'}"></td>
+        <td th:if="${manageCatalogue}"><button type="button" class="secondary" data-edit="products" th:attr="data-id=${item.id}">Edit</button></td></tr>
+      <tr th:if="${catalogue.products.isEmpty()}"><td colspan="6">No products yet. Define a produce type, then add a product.</td></tr>
+    </tbody></table></div>
+    <details th:if="${manageCatalogue}" id="products-editor"><summary>Add / edit product</summary>
+      <form data-resource="products" class="editor">
+        <input type="hidden" name="id">
+        <th:block th:replace="~{layout :: identityFields}"></th:block>
+        <label>Produce type<select name="produceTypeId" required><option value="">Choose type</option><option th:each="item : ${catalogue.types}" th:value="${item.id}" th:text="${item.name + (item.active ? '' : ' (inactive)')}"></option></select></label>
+        <label>Variety (optional)<select name="varietyId" data-nullable><option value="">None</option><option th:each="item : ${catalogue.classifications}" th:if="${item.kind.name() == 'VARIETY'}" th:value="${item.id}" th:attr="data-type=${item.produceTypeId}" th:text="${labels[item.produceTypeId] + ' / ' + item.name}"></option></select></label>
+        <label>Grade (optional)<select name="gradeId" data-nullable><option value="">None</option><option th:each="item : ${catalogue.classifications}" th:if="${item.kind.name() == 'GRADE'}" th:value="${item.id}" th:attr="data-type=${item.produceTypeId}" th:text="${labels[item.produceTypeId] + ' / ' + item.name}"></option></select></label>
+        <label>Base stock unit<select name="baseUnitId" required><option value="">Choose unit</option><option th:each="item : ${catalogue.units}" th:if="${item.dimension.name() != 'PACKAGING'}" th:value="${item.id}" th:text="${item.code + ' - ' + item.name + (item.active ? '' : ' (inactive)')}"></option></select></label>
+        <div th:replace="~{layout :: saveButtons}"></div>
+      </form>
+    </details>
+  </section>
+
+  <section id="types" class="panel">
+    <h2>Produce types</h2>
+    <div class="table-scroll"><table><thead><tr><th>Code</th><th>Name</th><th>Status</th><th th:if="${manageCatalogue}">Action</th></tr></thead><tbody>
+      <tr th:each="item : ${catalogue.types}" data-row><td th:text="${item.code}"></td><td th:text="${item.name}"></td><td th:text="${item.active ? 'Active' : 'Inactive'}"></td><td th:if="${manageCatalogue}"><button type="button" class="secondary" data-edit="types" th:attr="data-id=${item.id}">Edit</button></td></tr>
+      <tr th:if="${catalogue.types.isEmpty()}"><td colspan="4">No produce types yet.</td></tr>
+    </tbody></table></div>
+    <details th:if="${manageCatalogue}" id="types-editor"><summary>Add / edit produce type</summary>
+      <form data-resource="types" class="editor"><input type="hidden" name="id">
+        <th:block th:replace="~{layout :: identityFields}"></th:block>
+        <div th:replace="~{layout :: saveButtons}"></div>
+      </form>
+    </details>
+  </section>
+
+  <section id="classifications" class="panel">
+    <h2>Varieties and grades</h2><p class="hint">Each variety or grade belongs to one produce type. Use distinct codes, for example TOMATO_GRADE_A.</p>
+    <div class="table-scroll"><table><thead><tr><th>Code</th><th>Name</th><th>Kind</th><th>Produce type</th><th>Status</th><th th:if="${manageCatalogue}">Action</th></tr></thead><tbody>
+      <tr th:each="item : ${catalogue.classifications}" data-row><td th:text="${item.code}"></td><td th:text="${item.name}"></td><td th:text="${item.kind}"></td><td th:text="${labels[item.produceTypeId]}"></td><td th:text="${item.active ? 'Active' : 'Inactive'}"></td><td th:if="${manageCatalogue}"><button type="button" class="secondary" data-edit="classifications" th:attr="data-id=${item.id}">Edit</button></td></tr>
+      <tr th:if="${catalogue.classifications.isEmpty()}"><td colspan="6">No varieties or grades yet.</td></tr>
+    </tbody></table></div>
+    <details th:if="${manageCatalogue}" id="classifications-editor"><summary>Add / edit variety or grade</summary>
+      <form data-resource="classifications" class="editor"><input type="hidden" name="id">
+        <th:block th:replace="~{layout :: identityFields}"></th:block>
+        <label>Kind<select name="kind" required><option value="VARIETY">Variety</option><option value="GRADE">Grade</option></select></label>
+        <label>Produce type<select name="produceTypeId" required><option value="">Choose type</option><option th:each="item : ${catalogue.types}" th:value="${item.id}" th:text="${item.name + (item.active ? '' : ' (inactive)')}"></option></select></label>
+        <div th:replace="~{layout :: saveButtons}"></div>
+      </form>
+    </details>
+  </section>
+
+  <section id="units" class="panel">
+    <h2>Units of measure</h2><p class="hint">Mass factors are in kilograms; count factors are in pieces. Packaging has no universal factor. Dimension and factor are immutable after creation.</p>
+    <div class="table-scroll"><table><thead><tr><th>Code</th><th>Name</th><th>Dimension</th><th>Canonical factor</th><th>Status</th><th th:if="${manageCatalogue}">Action</th></tr></thead><tbody>
+      <tr th:each="item : ${catalogue.units}" data-row><td th:text="${item.code}"></td><td th:text="${item.name}"></td><td th:text="${item.dimension}"></td><td th:text="${item.baseFactor == null ? 'Product-specific only' : item.baseFactor}"></td><td th:text="${item.active ? 'Active' : 'Inactive'}"></td><td th:if="${manageCatalogue}"><button type="button" class="secondary" data-edit="units" th:attr="data-id=${item.id}">Edit</button></td></tr>
+    </tbody></table></div>
+    <details th:if="${manageCatalogue}" id="units-editor"><summary>Add / edit unit</summary>
+      <form data-resource="units" class="editor"><input type="hidden" name="id">
+        <th:block th:replace="~{layout :: identityFields}"></th:block>
+        <label>Dimension<select name="dimension" required><option value="MASS">Mass</option><option value="COUNT">Count</option><option value="PACKAGING">Packaging</option></select></label>
+        <label>Canonical factor (blank for packaging)<input type="number" name="baseFactor" min="0.000001" max="9999999999999.999999" step="0.000001" data-nullable></label>
+        <div th:replace="~{layout :: saveButtons}"></div>
+      </form>
+    </details>
+  </section>
+
+  <section id="packaging" class="panel">
+    <h2>Fixed packaging conversions</h2><p class="hint">Define a conversion only for standardized packaging, e.g. one tomato crate = 20 KG. Variable-weight deliveries must record their measured quantity in the future Inventory module.</p>
+    <div class="table-scroll"><table><thead><tr><th>Product</th><th>Packaging unit</th><th>Quantity in product base unit</th><th th:if="${manageCatalogue}">Action</th></tr></thead><tbody>
+      <tr th:each="item : ${catalogue.packaging}" data-row><td th:text="${labels[item.productId]}"></td><td th:text="${labels[item.unitId]}"></td><td th:text="${item.quantityInBaseUnit}"></td><td th:if="${manageCatalogue}"><button type="button" class="secondary" data-edit="packaging" th:attr="data-id=${item.id}">Edit</button></td></tr>
+      <tr th:if="${catalogue.packaging.isEmpty()}"><td colspan="4">No fixed packaging conversions defined. No crate/bag weight is assumed.</td></tr>
+    </tbody></table></div>
+    <details th:if="${manageCatalogue}" id="packaging-editor"><summary>Set product packaging conversion</summary>
+      <form data-resource="packaging" class="editor">
+        <label>Product<select name="productId" required><option value="">Choose product</option><option th:each="item : ${catalogue.products}" th:if="${item.active}" th:value="${item.id}" th:text="${item.name + ' / base unit ' + labels[item.baseUnitId]}"></option></select></label>
+        <label>Packaging unit<select name="unitId" required><option value="">Choose unit</option><option th:each="item : ${catalogue.units}" th:if="${item.active and item.dimension.name() == 'PACKAGING'}" th:value="${item.id}" th:text="${item.code}"></option></select></label>
+        <label>Base units per one package<input name="quantityInBaseUnit" type="number" min="0.000001" step="0.000001" max="9999999999999.999999" required></label>
+        <div th:replace="~{layout :: saveButtons}"></div>
+      </form>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2>Conversion calculator</h2><p class="hint">Converts to the product's base stock unit. Results use six decimal places, rounded half up; this does not record stock.</p>
+    <form data-resource="convert" class="editor">
+      <label>Product<select name="productId" required><option value="">Choose product</option><option th:each="item : ${catalogue.products}" th:if="${item.active}" th:value="${item.id}" th:text="${item.name}"></option></select></label>
+      <label>From unit<select name="fromUnitId" required><option value="">Choose unit</option><option th:each="item : ${catalogue.units}" th:if="${item.active}" th:value="${item.id}" th:text="${item.code}"></option></select></label>
+      <label>Quantity<input name="quantity" type="number" min="0.000001" step="0.000001" max="9999999999999.999999" required></label>
+      <div class="form-actions"><button type="submit">Convert</button><output class="form-message" aria-live="polite"></output></div>
+    </form>
+  </section>
+  <noscript><p class="notice error">JavaScript is required to save catalogue changes and use the calculator. Read-only tables remain available.</p></noscript>
+</main>
+</body>
+</html>
