@@ -47,6 +47,11 @@ final class SessionValidationFilter extends OncePerRequestFilter {
 				if (session != null) {
 					session.invalidate();
 				}
+				if ("GET".equals(request.getMethod())
+						&& ("/".equals(request.getServletPath()) || "/home".equals(request.getServletPath()))) {
+					response.sendRedirect(request.getContextPath() + "/oauth2/authorization/keycloak");
+					return;
+				}
 				errors.write(request, response, HttpStatus.UNAUTHORIZED, "Sign in again to continue");
 				return;
 			}
