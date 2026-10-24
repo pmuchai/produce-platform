@@ -360,13 +360,16 @@ class AccessIntegrationTests extends OidcTestSupport {
 
 	@Test
 	void expiredIdentityTokenRedirectsLandingPagesToSignIn() throws Exception {
-		try (var homeBrowser = browser(); var rootBrowser = browser()) {
+		try (var homeBrowser = browser(); var rootBrowser = browser(); var catalogueBrowser = browser()) {
 			assertThat(homeBrowser.login(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS,
 				OidcTestProvider.Fault.SHORT_LIVED).statusCode()).isEqualTo(200);
 			assertThat(rootBrowser.login(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS,
 				OidcTestProvider.Fault.SHORT_LIVED).statusCode()).isEqualTo(200);
+			assertThat(catalogueBrowser.login(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS,
+				OidcTestProvider.Fault.SHORT_LIVED).statusCode()).isEqualTo(200);
 			TimeUnit.SECONDS.sleep(4);
-			for (var response : List.of(homeBrowser.get("/home"), rootBrowser.get("/"))) {
+			for (var response : List.of(homeBrowser.get("/home"), rootBrowser.get("/"),
+					catalogueBrowser.get("/ui/catalogue"))) {
 				assertThat(response.statusCode()).isEqualTo(302);
 				assertThat(URI.create(response.headers().firstValue("Location").orElseThrow()).getPath())
 					.isEqualTo("/oauth2/authorization/keycloak");
