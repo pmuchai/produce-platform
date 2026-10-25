@@ -118,6 +118,9 @@
       delete form.dataset.requestId;
       message.textContent = '';
       message.className = 'form-message';
+      if (form.dataset.stock === 'thresholds') {
+        form.elements.namedItem('expectedVersion').value = '-1';
+      }
       if (form.dataset.stock === 'receipts') {
         while (receiptLines.children.length > 1) receiptLines.lastElementChild.remove();
       }
