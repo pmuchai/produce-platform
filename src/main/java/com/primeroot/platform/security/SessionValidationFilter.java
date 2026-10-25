@@ -48,9 +48,10 @@ final class SessionValidationFilter extends OncePerRequestFilter {
 					session.invalidate();
 				}
 				if ("GET".equals(request.getMethod())
-						&& ("/".equals(request.getServletPath()) || "/home".equals(request.getServletPath())
+						&& ("/".equals(request.getServletPath()) || "/login".equals(request.getServletPath())
+							|| "/home".equals(request.getServletPath())
 							|| request.getServletPath().startsWith("/ui/"))) {
-					response.sendRedirect(request.getContextPath() + "/oauth2/authorization/keycloak");
+					response.sendRedirect(request.getContextPath() + "/login");
 					return;
 				}
 				errors.write(request, response, HttpStatus.UNAUTHORIZED, "Sign in again to continue");

@@ -1,15 +1,17 @@
 <!doctype html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{layout :: head('Inventory')}"></head>
+<head th:replace="~{layout :: head(${inventoryTitle})}"></head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <aside th:replace="~{layout :: sidebar}"></aside>
 <main id="main" class="workspace">
-  <header th:replace="~{layout :: header(${page == 'receipts' ? 'Receivables / Stock entries' : 'Stock movement'}, 'Branch inventory, traceable batches and spoilage controls')}"></header>
+  <header th:replace="~{layout :: header(${inventoryTitle}, ${navGroup == 'reports' ? 'Read-only inventory reporting within your branch scope' : 'Branch inventory, traceable batches and stock controls'})}"></header>
   <div th:replace="~{layout :: notice}"></div>
-  <nav class="tabs" aria-label="Inventory navigation"><a th:href="@{/ui/stock-entries}">Receive stock</a><a th:href="@{/ui/stock}">Balances, movements and reports</a></nav>
-  <form th:replace="~{layout :: dates(@{${page == 'receipts' ? '/ui/stock-entries' : '/ui/stock'}})}"></form>
-  <form method="get" class="date-filter panel" th:action="@{${page == 'receipts' ? '/ui/stock-entries' : '/ui/stock'}}">
+  <p th:if="${page == 'stock'}" class="hint">Record spoilage, post stock corrections or reverse an eligible movement below.
+    Receipts are posted through Stock / Receive stock. Read-only stock and movement reports are under Reports.
+    Inter-branch transfers are not available yet.</p>
+  <th:block th:if="${page != 'receipts'}"><form th:replace="~{layout :: dates(@{${inventoryPath}})}"></form></th:block>
+  <form method="get" class="date-filter panel" th:action="@{${inventoryPath}}">
     <input type="hidden" name="start" th:value="${period.start}"><input type="hidden" name="end" th:value="${period.end}">
     <label>Branch<select name="branchId"><option value="">All permitted branches</option>
       <option th:each="branch : ${inventory.branches}" th:value="${branch.id}" th:text="${branch.name}" th:selected="${branch.id == selectedBranch}"></option></select></label>
@@ -19,12 +21,15 @@
     <h2>Receive stock</h2>
     <p class="hint">Posting immediately creates stock. Use one receipt for up to 50 product lines.
       For variable-weight packages, enter their actual total measured quantity in the product's base unit.
-      Leave it blank only when using a defined fixed packaging conversion.</p>
+      Leave it blank only when using a defined fixed packaging conversion.
+      Enter purchase cost per delivered unit, not per base unit unless those units are the same.
+      Batch totals are calculated on posting, rounded half up to the currency's standard decimal places.</p>
     <form data-stock="receipts" class="editor" id="stock-receipt">
       <label>Destination branch<select name="branchId" required><option value="">Choose branch</option>
         <option th:each="branch : ${inventory.branches}" th:if="${branch.active}" th:value="${branch.id}" th:text="${branch.name}"></option></select></label>
       <label>Received date (UTC)<input name="receivedDate" type="date" required min="1970-01-01" th:max="${today}" th:value="${today}"></label>
       <label>Source / delivery reference<input name="source" required maxlength="120"></label>
+      <label>Currency<input name="currency" required readonly th:value="${inventory.currency}"></label>
       <label>Notes<input name="notes" maxlength="500"></label>
       <div id="receipt-lines" class="full-width">
         <fieldset class="receipt-line editor">
@@ -34,6 +39,7 @@
           <label>Delivered unit<select name="unitId" required><option value="">Choose unit</option>
             <option th:each="unit : ${inventory.units}" th:value="${unit.id}" th:text="${unit.code}"></option></select></label>
           <label>Delivered quantity<input name="quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
+          <label>Purchase cost per delivered unit<input name="purchaseUnitCost" type="number" min="0" max="9999999999999.999999" step="0.000001" required></label>
           <label>Actual measured total (base unit, optional)<input name="measuredBaseQuantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001"></label>
           <label>Lot / batch reference<input name="lotCode" required maxlength="64"></label>
           <label>Expiry / best-before (optional)<input name="expiryDate" type="date" max="9999-12-31"></label>
@@ -45,17 +51,18 @@
     </form>
   </section>
   <p th:if="${page == 'receipts' and !receiveStock}" class="panel">You can view inventory, but do not have permission to receive stock.</p>
-  <section class="panel"><h2>Stock balances</h2><div th:replace="~{stock-summary :: balances}"></div></section>
-  <section id="stock-batches" class="panel"><h2>Current batches / expiry alerts</h2>
+  <section th:if="${page == 'stock-report'}" class="panel"><h2>Stock balances, receipts and spoilage</h2><div th:replace="~{stock-summary :: balances}"></div></section>
+  <section th:if="${page == 'receipts' or page == 'stock'}" class="panel"><h2>Current on-hand stock</h2><div th:replace="~{stock-summary :: currentBalances}"></div></section>
+  <section th:if="${page == 'stock'}" class="panel"><h2>Find a batch</h2>
+    <p class="hint">Search or change batch pages to choose batches in the spoilage and correction forms below.</p>
+    <div th:replace="~{batch-controls :: filters}"></div>
+  </section>
+  <section th:if="${page == 'receipts' or page == 'stock-report'}" id="stock-batches" class="panel"><h2>Current batches / expiry alerts</h2>
     <p class="hint" th:text="${inventory.nearExpiryCount} + ' batches have stock that is expired or due within seven days. These are current alerts, not historical alerts for the date filter.'"></p>
-    <p class="hint" th:text="${batchPage.totalElements} + ' matching batches. Search by lot or product; up to 100 per page.'"></p>
-    <form method="get" class="date-filter" th:action="@{${page == 'receipts' ? '/ui/stock-entries' : '/ui/stock'}}">
-      <input type="hidden" name="start" th:value="${period.start}"><input type="hidden" name="end" th:value="${period.end}">
-      <input type="hidden" name="branchId" th:value="${selectedBranch}">
-      <label>Search batches<input name="batchSearch" maxlength="120" th:value="${batchPage.search}"></label>
-      <button type="submit">Search</button>
-    </form>
-    <div class="table-scroll"><table><thead><tr><th>Branch / product</th><th>Lot / received / expiry</th><th>Current base quantity</th><th>Receipt / conversion snapshot</th></tr></thead>
+    <p class="hint">Original receipt cost is delivered quantity times purchase cost per delivered unit. It does not change with stock losses or corrections and is not remaining-stock valuation.
+      Costs exclude separately allocated freight/taxes. Base-unit cost is the original rounded batch total divided by received base quantity, rounded to 12 decimal places.</p>
+    <div th:replace="~{batch-controls :: filters}"></div>
+    <div class="table-scroll"><table><thead><tr><th>Branch / product</th><th>Lot / received / expiry</th><th>Current base quantity</th><th>Receipt / conversion snapshot</th><th>Original receipt cost</th></tr></thead>
       <tbody><tr th:each="batch : ${batchPage.batches}">
         <td><strong th:text="${batch.product}"></strong><small th:text="${batch.branch}"></small></td>
         <td><span th:text="${batch.lotCode}"></span><small th:text="'Received ' + ${batch.receivedDate}"></small>
@@ -65,12 +72,14 @@
         <td><span th:text="${batch.inputQuantity} + ' ' + ${batch.inputUnit} + ' = ' + ${batch.receivedQuantity} + ' ' + ${batch.baseUnit}"></span>
           <small th:text="${batch.measured ? 'Actual measured quantity' : 'Saved factor: ' + batch.conversionNumerator + ' / ' + batch.conversionDenominator}"></small>
           <small th:text="${batch.source}"></small></td>
-      </tr><tr th:if="${batchPage.batches.isEmpty()}"><td colspan="4">No batches match this search in the selected branch scope.</td></tr></tbody>
+        <td><span th:if="${batch.currency == null}">Cost unknown</span>
+          <th:block th:if="${batch.currency != null}">
+            <strong th:text="${batch.currency} + ' ' + ${batch.receivedCost}"></strong>
+            <small th:text="${batch.currency} + ' ' + ${batch.purchaseUnitCost} + ' / ' + ${batch.inputUnit}"></small>
+            <small th:text="${batch.currency} + ' ' + ${batch.baseUnitCost} + ' / ' + ${batch.baseUnit} + ' (derived)'"></small>
+          </th:block></td>
+      </tr><tr th:if="${batchPage.batches.isEmpty()}"><td colspan="5">No batches match this search in the selected branch scope.</td></tr></tbody>
     </table></div>
-    <nav class="tabs" aria-label="Batch pages">
-      <a th:if="${batchPage.page > 0}" th:href="@{${page == 'receipts' ? '/ui/stock-entries' : '/ui/stock'}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page},batchPage=${batchPage.page - 1},batchSearch=${batchPage.search})}">Previous batches</a>
-      <a th:if="${(batchPage.page + 1L) * 100 < batchPage.totalElements}" th:href="@{${page == 'receipts' ? '/ui/stock-entries' : '/ui/stock'}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page},batchPage=${batchPage.page + 1},batchSearch=${batchPage.search})}">Next batches</a>
-    </nav>
   </section>
   <section th:if="${page == 'stock' and spoilStock}" class="panel"><h2>Record spoilage</h2>
     <form data-stock="spoilage" class="editor">
@@ -93,7 +102,7 @@
       <div th:replace="~{layout :: saveButtons}"></div>
     </form>
   </section>
-  <section id="stock-history" class="panel"><h2>Posted movements</h2>
+  <section th:if="${page == 'stock' or page == 'movement-report'}" id="stock-history" class="panel"><h2>Posted movements</h2>
     <p class="hint" th:text="${inventory.movementCount} + ' matching movements. Up to 100 per page, newest posting first. Receipt dates do not backdate ledger entries.'"></p>
     <div class="table-scroll"><table><thead><tr><th>Posted (UTC) / actor</th><th>Branch / product / lot</th><th>Movement</th><th>Base quantity</th><th>Source / reason</th><th>Correction</th></tr></thead>
       <tbody><tr th:each="movement : ${inventory.movements}">
@@ -108,8 +117,8 @@
       </tr><tr th:if="${inventory.movements.isEmpty()}"><td colspan="6">No movements in the selected interval.</td></tr></tbody>
     </table></div>
     <nav class="tabs" aria-label="Movement pages">
-      <a th:if="${inventory.page > 0}" th:href="@{${page == 'receipts' ? '/ui/stock-entries' : '/ui/stock'}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page - 1})}">Previous</a>
-      <a th:if="${(inventory.page + 1L) * 100 < inventory.movementCount}" th:href="@{${page == 'receipts' ? '/ui/stock-entries' : '/ui/stock'}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page + 1})}">Next</a>
+      <a th:if="${inventory.page > 0}" th:href="@{${inventoryPath}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page - 1})}">Previous</a>
+      <a th:if="${(inventory.page + 1L) * 100 < inventory.movementCount}" th:href="@{${inventoryPath}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page + 1})}">Next</a>
     </nav>
   </section>
   <section th:if="${page == 'stock' and adjustStock}" id="stock-reversal" class="panel"><h2>Reverse a movement</h2>

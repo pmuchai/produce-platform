@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"><body>
+<div th:fragment="filters">
+  <p class="hint" th:text="${batchPage.totalElements} + ' matching batches. Search by lot or product; up to 100 per page.'"></p>
+  <form method="get" class="date-filter" th:action="@{${inventoryPath}}">
+    <input type="hidden" name="start" th:value="${period.start}"><input type="hidden" name="end" th:value="${period.end}">
+    <input type="hidden" name="branchId" th:value="${selectedBranch}">
+    <label>Search batches<input name="batchSearch" maxlength="120" th:value="${batchPage.search}"></label>
+    <button type="submit">Search</button>
+  </form>
+  <nav class="tabs" aria-label="Batch pages">
+    <a th:if="${batchPage.page > 0}" th:href="@{${inventoryPath}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page},batchPage=${batchPage.page - 1},batchSearch=${batchPage.search})}">Previous batches</a>
+    <a th:if="${(batchPage.page + 1L) * 100 < batchPage.totalElements}" th:href="@{${inventoryPath}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page},batchPage=${batchPage.page + 1},batchSearch=${batchPage.search})}">Next batches</a>
+  </nav>
+</div>
+</body></html>

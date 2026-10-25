@@ -14,10 +14,23 @@
       <td th:text="${balance.spoilage} + ' / ' + ${balance.previousSpoilage} + ' ' + ${balance.baseUnit}"></td>
       <td><span th:text="${balance.minimum == null ? 'Not configured' : balance.minimum + ' ' + balance.baseUnit}"></span>
         <small th:if="${balance.lowStock}" class="warning">At or below minimum</small>
+      </td>
+    </tr><tr th:if="${inventory.balances.isEmpty()}"><td colspan="6">No stock or thresholds recorded within your branch scope.</td></tr></tbody>
+  </table></div>
+</div>
+<div th:fragment="currentBalances">
+  <p class="hint">Live physical quantities in each product's base unit. Expired stock remains on hand until a loss or correction is posted.</p>
+  <div class="table-scroll"><table id="stock-balances">
+    <thead><tr><th>Branch / product</th><th>Current</th><th>Minimum / status</th></tr></thead>
+    <tbody><tr th:each="balance : ${inventory.balances}">
+      <td><strong th:text="${balance.product}"></strong><small th:text="${balance.branch}"></small></td>
+      <td th:text="${balance.current} + ' ' + ${balance.baseUnit}"></td>
+      <td><span th:text="${balance.minimum == null ? 'Not configured' : balance.minimum + ' ' + balance.baseUnit}"></span>
+        <small th:if="${balance.lowStock}" class="warning">At or below minimum</small>
         <button th:if="${adjustStock and page == 'stock'}" type="button" class="secondary"
           data-threshold th:attr="data-branch=${balance.branchId},data-product=${balance.productId},data-minimum=${balance.minimum},data-version=${balance.thresholdVersion}">Set minimum</button>
       </td>
-    </tr><tr th:if="${inventory.balances.isEmpty()}"><td colspan="6">No stock or thresholds recorded within your branch scope.</td></tr></tbody>
+    </tr><tr th:if="${inventory.balances.isEmpty()}"><td colspan="3">No stock or thresholds recorded within your branch scope.</td></tr></tbody>
   </table></div>
 </div>
 </body></html>

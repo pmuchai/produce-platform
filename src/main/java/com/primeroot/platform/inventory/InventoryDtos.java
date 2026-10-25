@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
@@ -22,11 +23,13 @@ public final class InventoryDtos {
 
 	public record ReceiptRequest(@NotNull UUID requestId, @NotNull UUID branchId,
 		@NotNull LocalDate receivedDate, @NotBlank @Size(max = 120) String source,
+		@NotBlank @Pattern(regexp = "[A-Za-z]{3}") String currency,
 		@Size(max = 500) String notes, @NotNull @Size(min = 1, max = 50) List<@NotNull @Valid ReceiptLine> lines) {
 	}
 
 	public record ReceiptLine(@NotNull UUID productId, @NotNull UUID unitId,
 		@NotNull @Positive @Digits(integer = 13, fraction = 6) BigDecimal quantity,
+		@NotNull @PositiveOrZero @Digits(integer = 13, fraction = 6) BigDecimal purchaseUnitCost,
 		@Positive @Digits(integer = 13, fraction = 6) BigDecimal measuredBaseQuantity,
 		@NotBlank @Size(max = 64) String lotCode, LocalDate expiryDate) {
 	}
@@ -61,7 +64,10 @@ public final class InventoryDtos {
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal receivedQuantity,
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal conversionNumerator,
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal conversionDenominator,
-		boolean measured, String source, boolean nearExpiry) {
+		boolean measured, String source, boolean nearExpiry, String currency,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal purchaseUnitCost,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal receivedCost,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal baseUnitCost) {
 		static BatchResponse from(StockBatch batch, LocalDate today) {
 			return new BatchResponse(batch.getId(), batch.getBranch().getId(), batch.getBranch().getName(),
 				batch.getProduct().getId(), batch.getProduct().getName(), batch.getProduct().getBaseUnit().getCode(),
@@ -69,7 +75,8 @@ public final class InventoryDtos {
 				batch.getInputUnit().getCode(), batch.getInputQuantity(), batch.getReceivedQuantity(),
 				batch.getConversionNumerator(), batch.getConversionDenominator(), batch.isMeasured(),
 				batch.getOperation().getSource(), batch.getQuantity().signum() > 0 && batch.getExpiryDate() != null
-					&& !batch.getExpiryDate().isAfter(today.plusDays(7)));
+					&& !batch.getExpiryDate().isAfter(today.plusDays(7)),
+				batch.getCurrency(), batch.getPurchaseUnitCost(), batch.getReceivedCost(), batch.getBaseUnitCost());
 		}
 	}
 
@@ -114,6 +121,6 @@ public final class InventoryDtos {
 
 	public record Snapshot(List<BranchOption> branches, List<ProductOption> products, List<UnitOption> units,
 		List<Balance> balances, List<MovementResponse> movements,
-		long movementCount, int page, long lowStockCount, long nearExpiryCount) {
+		long movementCount, int page, long lowStockCount, long nearExpiryCount, String currency) {
 	}
 }

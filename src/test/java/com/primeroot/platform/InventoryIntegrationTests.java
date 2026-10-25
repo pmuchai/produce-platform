@@ -22,7 +22,7 @@ import tools.jackson.databind.JsonNode;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-	"platform.bootstrap.enabled=false", "server.servlet.session.cookie.secure=false",
+	"platform.bootstrap.enabled=false", "server.servlet.session.cookie.secure=false", "platform.inventory.currency=KES",
 	"spring.datasource.url=jdbc:h2:mem:inventory-integration-tests;MODE=PostgreSQL"})
 class InventoryIntegrationTests extends OidcTestSupport {
 	@Autowired private JdbcTemplate jdbc;
@@ -37,6 +37,102 @@ class InventoryIntegrationTests extends OidcTestSupport {
 			jdbc.update("DELETE FROM " + table);
 		}
 		staff.bootstrap("admin", "Inventory Administrator", OidcTestProvider.ADMIN_SUBJECT);
+	}
+
+	@Test
+	void receiptCostsUseDeliveredUnitsAndPersistRoundedBatchTotalsWithoutRepricingStock() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var product = product(admin);
+			var measured = new java.util.HashMap<>(line(product, "CRATE", "2", "MEASURED_COST"));
+			measured.put("purchaseUnitCost", "2000");
+			measured.put("measuredBaseQuantity", "50");
+			var rounded = new java.util.HashMap<>(line(product, "KG", "1", "ROUNDED_COST"));
+			rounded.put("purchaseUnitCost", "12.345");
+			var grams = new java.util.HashMap<>(line(product, "G", "1000", "GRAM_COST"));
+			grams.put("purchaseUnitCost", "0.08");
+			var free = new java.util.HashMap<>(line(product, "KG", "1", "FREE_STOCK"));
+			free.put("purchaseUnitCost", "0");
+			var request = receipt(branch, List.of(measured, rounded, grams, free));
+			var response = admin.mutate("POST", "/api/inventory/receipts", request);
+			assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(201);
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", request).statusCode()).isEqualTo(201);
+			var snapshot = admin.body(admin.get("/api/inventory"));
+			assertThat(snapshot.get("currency").asText()).isEqualTo("KES");
+			var batches = admin.body(admin.get("/api/inventory/batches")).get("batches");
+			var batch = find(batches, "lotCode", "MEASURED_COST");
+			assertThat(batch.get("currency").asText()).isEqualTo("KES");
+			assertThat(batch.get("purchaseUnitCost").asText()).isEqualTo("2000.000000");
+			assertThat(batch.get("receivedCost").asText()).isEqualTo("4000.00");
+			assertThat(batch.get("baseUnitCost").asText()).isEqualTo("80.000000000000");
+			assertThat(find(batches, "lotCode", "ROUNDED_COST").get("receivedCost").asText()).isEqualTo("12.35");
+			var gramBatch = find(batches, "lotCode", "GRAM_COST");
+			assertThat(gramBatch.get("receivedCost").asText()).isEqualTo("80.00");
+			assertThat(gramBatch.get("baseUnitCost").asText()).isEqualTo("80.000000000000");
+			var freeBatch = find(batches, "lotCode", "FREE_STOCK");
+			assertThat(freeBatch.get("currency").asText()).isEqualTo("KES");
+			assertThat(freeBatch.get("receivedCost").asText()).isEqualTo("0.00");
+			var batchId = batch.get("id").asText();
+			assertThat(admin.mutate("POST", "/api/inventory/spoilage", change(branch, batchId, "10", "Bruising")).statusCode()).isEqualTo(200);
+			batch = find(admin.body(admin.get("/api/inventory/batches")).get("batches"), "id", batchId);
+			assertThat(batch.get("quantity").asText()).isEqualTo("40.000000");
+			assertThat(batch.get("receivedCost").asText()).isEqualTo("4000.00");
+			assertThat(batch.get("baseUnitCost").asText()).isEqualTo("80.000000000000");
+			measured.put("purchaseUnitCost", "2001");
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", request).statusCode()).isEqualTo(409);
+			assertThat(count("stock_batches")).isEqualTo(4);
+			assertLedgerMatchesBatches();
+		}
+	}
+
+	@Test
+	void missingNegativeOrOversizedCostsAndWrongCurrenciesRejectTheEntireReceipt() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var product = product(admin);
+			var invalid = new java.util.HashMap<>(line(product, "KG", "1", "INVALID_COST"));
+			invalid.remove("purchaseUnitCost");
+			assertThat(admin.mutate("POST", "/api/inventory/receipts",
+				receipt(branch, List.of(line(product, "KG", "1", "VALID"), invalid))).statusCode()).isEqualTo(400);
+			for (var cost : List.of("-0.01", "1.1234567", "10000000000000")) {
+				invalid.put("purchaseUnitCost", cost);
+				assertThat(admin.mutate("POST", "/api/inventory/receipts",
+					receipt(branch, List.of(line(product, "KG", "1", "VALID"), invalid))).statusCode()).isEqualTo(400);
+			}
+			var request = new java.util.HashMap<>(receipt(branch, List.of(line(product, "KG", "1", "VALID"))));
+			for (var currency : List.of("USD", "AAA", "XXX", "")) {
+				request.put("currency", currency);
+				assertThat(admin.mutate("POST", "/api/inventory/receipts", request).statusCode()).isEqualTo(400);
+			}
+			request.remove("currency");
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", request).statusCode()).isEqualTo(400);
+			assertThat(count("stock_operations")).isZero();
+			assertThat(count("stock_batches")).isZero();
+			assertThat(count("stock_movements")).isZero();
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action = 'STOCK_RECEIPT'", Integer.class)).isZero();
+		}
+	}
+
+	@Test
+	void legacyBatchCostsRemainUnknownWhenStockChangesAndAreLabelledClearly() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var product = product(admin);
+			var posted = postReceipt(admin, branch, product, "10");
+			var batchId = posted.get("movements").get(0).get("batchId").asText();
+			jdbc.update("UPDATE stock_batches SET currency = NULL, purchase_unit_cost = NULL, received_cost = NULL WHERE id = ?", UUID.fromString(batchId));
+			assertThat(admin.mutate("POST", "/api/inventory/spoilage", change(branch, batchId, "1", "Legacy batch loss")).statusCode()).isEqualTo(200);
+			var batch = find(admin.body(admin.get("/api/inventory/batches")).get("batches"), "id", batchId);
+			assertThat(batch.get("quantity").asText()).isEqualTo("9.000000");
+			for (var field : List.of("currency", "purchaseUnitCost", "receivedCost", "baseUnitCost")) {
+				assertThat(batch.get(field).isNull()).as(field).isTrue();
+			}
+			assertThat(admin.get("/ui/stock-entries").body()).contains("Cost unknown");
+			assertLedgerMatchesBatches();
+		}
 	}
 
 	@Test
@@ -172,8 +268,51 @@ class InventoryIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void stockReportsAreReadOnlyEvenForAdministratorsAndKeepMovementFiltersWhenPaging() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var product = product(admin);
+			postReceipt(admin, branch, product, "10");
+			for (int receipt = 0; receipt < 2; receipt++) {
+				var lines = java.util.stream.IntStream.range(0, 50)
+					.mapToObj(index -> line(product, "KG", "1", "REPORT_" + index)).toList();
+				assertThat(admin.mutate("POST", "/api/inventory/receipts", receipt(branch, lines)).statusCode()).isEqualTo(201);
+			}
+			var filters = "?start=" + today + "&end=" + today + "&branchId=" + branch;
+			var levels = admin.get("/ui/reports/stock" + filters);
+			assertThat(levels.statusCode()).withFailMessage(levels.body()).isEqualTo(200);
+			assertThat(levels.body()).contains("Stock levels report", "110.000000 KG", "KES 80.00", "As of interval end",
+				"action=\"/ui/reports/stock\"",
+				"/ui/reports/stock?start=" + today + "&amp;end=" + today + "&amp;branchId=" + branch + "&amp;page=0&amp;batchPage=1")
+				.doesNotContain("data-stock=", "data-reverse", "data-threshold", "id=\"stock-history\"");
+			var olderBatches = admin.get("/ui/reports/stock" + filters + "&batchPage=1");
+			assertThat(olderBatches.statusCode()).withFailMessage(olderBatches.body()).isEqualTo(200);
+			assertThat(olderBatches.body()).contains("KES 800.00",
+				"/ui/reports/stock?start=" + today + "&amp;end=" + today + "&amp;branchId=" + branch + "&amp;page=0&amp;batchPage=0");
+			var movements = admin.get("/ui/reports/stock-movements" + filters);
+			assertThat(movements.statusCode()).withFailMessage(movements.body()).isEqualTo(200);
+			assertThat(movements.body()).contains("Stock movements report", "101 matching movements",
+				"/ui/reports/stock-movements?start=" + today + "&amp;end=" + today + "&amp;branchId=" + branch + "&amp;page=1")
+				.doesNotContain("data-stock=", "data-reverse", "data-threshold", "id=\"stock-batches\"");
+			var next = admin.get("/ui/reports/stock-movements" + filters + "&page=1");
+			assertThat(next.statusCode()).withFailMessage(next.body()).isEqualTo(200);
+			assertThat(next.body()).contains(
+				"/ui/reports/stock-movements?start=" + today + "&amp;end=" + today + "&amp;branchId=" + branch + "&amp;page=0");
+			var operations = admin.get("/ui/stock");
+			assertThat(operations.body()).contains("data-stock=\"spoilage\"", "data-stock=\"adjustments\"",
+				"data-stock=\"reversals\"", "data-stock=\"thresholds\"", "id=\"stock-history\"",
+				"Find a batch", "name=\"batchSearch\"", "Next batches")
+				.doesNotContain("As of interval end", "id=\"stock-batches\"");
+			var selectedBatch = admin.get("/ui/stock" + filters + "&batchSearch=LOT");
+			assertThat(selectedBatch.statusCode()).withFailMessage(selectedBatch.body()).isEqualTo(200);
+			assertThat(selectedBatch.body()).contains("1 matching batches", "10.000000 KG)");
+		}
+	}
+
+	@Test
 	void inventoryPermissionsAndBranchScopeApplyToQueriesMutationsAndUi() throws Exception {
-		try (var admin = browser(); var viewer = browser(); var operator = browser()) {
+		try (var admin = browser(); var viewer = browser(); var operator = browser(); var auditor = browser()) {
 			admin.adminLogin();
 			var north = branch(admin, "NORTH");
 			var south = branch(admin, "SOUTH");
@@ -191,6 +330,23 @@ class InventoryIntegrationTests extends OidcTestSupport {
 			var viewPage = viewer.get("/ui/stock-entries");
 			assertThat(viewPage.statusCode()).isEqualTo(200);
 			assertThat(viewPage.body()).doesNotContain("data-stock=\"receipts\"", "data-stock=\"adjustments\"");
+			for (var path : List.of("/ui/reports/stock", "/ui/reports/stock-movements")) {
+				var report = viewer.get(path);
+				assertThat(report.statusCode()).as(path).withFailMessage(report.body()).isEqualTo(200);
+				assertThat(report.body()).contains("NORTH").doesNotContain("SOUTH", "data-stock=", "data-reverse",
+					"data-threshold", "href=\"/ui/reports/audit\"", "href=\"/ui/stock-entries\"");
+				assertThat(viewer.get(path + "?branchId=" + south).statusCode()).as(path).isEqualTo(403);
+			}
+			assertThat(viewer.get("/ui/reports/audit").statusCode()).isEqualTo(403);
+			assertThat(admin.mutate("POST", "/api/users", Map.of("username", "auditor", "fullName", "Auditor",
+				"subject", "audit-only", "allBranches", true, "branchIds", Set.of())).statusCode()).isEqualTo(201);
+			assertThat(auditor.login("audit-only", List.of("AUDIT_VIEW"), OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+			var audit = auditor.get("/ui/reports/audit");
+			assertThat(audit.statusCode()).isEqualTo(200);
+			assertThat(audit.body()).contains("Audit activity report").doesNotContain("href=\"/ui/reports/stock\"");
+			for (var path : List.of("/ui/reports/stock", "/ui/reports/stock-movements")) {
+				assertThat(auditor.get(path).statusCode()).as(path).isEqualTo(403);
+			}
 			assertThat(viewer.mutate("POST", "/api/inventory/receipts",
 				receipt(north, List.of(line(product, "KG", "1", "FORBIDDEN")))).statusCode()).isEqualTo(403);
 			assertThat(operator.login("stock-operator", List.of("STOCK_VIEW", "STOCK_RECEIVE", "STOCK_SPOILAGE", "STOCK_ADJUST"),
@@ -364,12 +520,12 @@ class InventoryIntegrationTests extends OidcTestSupport {
 	}
 
 	private Map<String, Object> line(String product, String unit, String quantity, String lot) {
-		return Map.of("productId", product, "unitId", unit(unit), "quantity", quantity, "lotCode", lot);
+		return Map.of("productId", product, "unitId", unit(unit), "quantity", quantity, "lotCode", lot, "purchaseUnitCost", "80");
 	}
 
 	private Map<String, Object> receipt(String branch, List<Map<String, Object>> lines) {
 		return Map.of("requestId", UUID.randomUUID().toString(), "branchId", branch, "receivedDate", today.toString(),
-			"source", "Farm delivery", "lines", lines);
+			"source", "Farm delivery", "currency", "KES", "lines", lines);
 	}
 
 	private JsonNode postReceipt(Browser admin, String branch, String product, String quantity) throws Exception {

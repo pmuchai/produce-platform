@@ -14,12 +14,19 @@ button:disabled { cursor: wait; opacity: .65; }
 .skip:focus { top: .5rem; }
 .sidebar { width: 250px; background: #123d2e; color: #e6f1e9; position: fixed; inset: 0 auto 0 0; padding: 1.5rem 1rem; display: flex; flex-direction: column; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: .6rem; font-size: 1.05rem; font-weight: 750; color: white; text-decoration: none; }
-.brand-mark { border-radius: .5rem; background: #dfedbd; color: #123d2e; padding: .5rem .8rem; font-size: 1.2rem; }
+.brand-mark { display: block; flex-shrink: 0; border-radius: .65rem; width: 2.75rem; height: 2.75rem; }
 .nav-caption { letter-spacing: .12em; font-size: .7rem; color: #a5c7b3; margin: 2rem .5rem .75rem; }
 .sidebar nav { display: grid; gap: .35rem; }
-.sidebar nav a, .sidebar nav > span { padding: .8rem .75rem; border-radius: .4rem; text-decoration: none; color: #e6f1e9; font-size: .9rem; }
+.sidebar .nav-group { border: 0; margin: 0; padding: 0; min-width: 0; }
+.sidebar .nav-group > summary { display: flex; align-items: center; justify-content: space-between; padding: .8rem .75rem; border-radius: .4rem; color: #e6f1e9; font-size: .9rem; list-style: none; }
+.sidebar .nav-group > summary::-webkit-details-marker { display: none; }
+.sidebar .nav-group > summary::after { content: "+"; margin-left: .5rem; }
+.sidebar .nav-group[open] > summary::after { content: "-"; }
+.sidebar .nav-group > summary:hover, .sidebar .nav-group[open] > summary { background: #1b4b37; }
+.nav-children { list-style: none; padding: 0 0 0 .75rem; margin: .25rem 0 .5rem .75rem; border-left: 1px solid #527562; }
+.nav-children a, .nav-children span { display: block; padding: .65rem .6rem; border-radius: .4rem; text-decoration: none; color: #e6f1e9; font-size: .85rem; overflow-wrap: anywhere; }
 .sidebar nav a:hover, .sidebar nav a[aria-current="page"] { background: #286046; color: white; }
-.sidebar nav > span { color: #acc3b6; }
+.nav-children span[aria-disabled="true"] { color: #acc3b6; }
 .sidebar small { display: block; font-size: .68rem; margin-top: .2rem; color: #a4bdae; }
 .sidebar-foot { border-top: 1px solid #3a604d; margin-top: auto; padding: 1.5rem .5rem 0; }
 .sidebar-foot p { font-size: .8rem; color: #c2d5c9; }
@@ -71,12 +78,47 @@ td { overflow-wrap: anywhere; }
 .receipt-line { border: 1px solid #cadbd0; border-radius: .4rem; margin: 0 0 1rem; min-width: 0; padding: 1rem; }
 .warning { display: block; color: #943c17; }
 [hidden] { display: none !important; }
+.login-page { background: #f6f8ef; background-image: radial-gradient(ellipse at 18% 50%, #e4efd6 0, transparent 60%); min-height: 100vh; display: flex; flex-direction: column; }
+.login-header, .login-footer { width: min(1280px, 100%); margin: 0 auto; padding: 1.75rem clamp(1.25rem, 4vw, 3.5rem); display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.login-header .brand { color: #123d2e; font-size: 1.4rem; letter-spacing: -.04em; }
+.login-header-caption { color: #52685b; font-size: .85rem; }
+.login-shell { width: min(1280px, 100%); margin: auto; padding: 1.5rem clamp(1.25rem, 4vw, 3.5rem) 2rem; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: center; gap: clamp(2rem, 5vw, 5rem); }
+.login-story h1 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.5rem, 4.7vw, 4.3rem); line-height: 1.1; letter-spacing: -.055em; font-weight: 500; margin: 1rem 0; }
+.login-story h1 em { color: #357653; font-style: normal; }
+.login-intro { color: #52685b; max-width: 29rem; font-size: 1.05rem; }
+.login-illustration { margin: -.5rem -1.5rem 0; }
+.login-illustration img { display: block; width: 100%; height: auto; }
+.login-illustration figcaption { text-align: center; color: #52685b; font-size: .8rem; margin-top: -.5rem; }
+.login-card { padding: clamp(1.5rem, 3vw, 2.5rem); background: #fffefb; border: 1px solid #dce6d4; border-radius: 1.25rem; box-shadow: 0 20px 70px #183a2710; }
+.login-card-heading { display: flex; align-items: center; gap: .85rem; }
+.login-card-heading .eyebrow { margin: 0; }
+.login-card h2 { font-size: clamp(1.5rem, 2.3vw, 1.9rem); letter-spacing: -.04em; margin: 1.5rem 0 .75rem; }
+.login-card > .muted { font-size: .95rem; margin-bottom: 1.75rem; }
+.login-button { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.2rem; border: 1px solid #176745; border-radius: .6rem; background: #176745; color: white; text-decoration: none; font-weight: 650; }
+.login-button:hover { background: #104e34; color: white; }
+.login-button svg { flex-shrink: 0; }
+.login-security, .login-help { color: #52685b; font-size: .78rem; }
+.login-security { margin: .9rem 0 1.75rem; }
+.login-capabilities { border-top: 1px solid #e0e7d8; padding-top: 1.25rem; }
+.login-capabilities h3 { font-size: .8rem; color: #52685b; font-weight: 600; margin: 0 0 1rem; }
+.login-capabilities ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 1rem; }
+.login-capabilities li { position: relative; padding-left: 1.3rem; }
+.login-capabilities li::before { content: ""; position: absolute; left: 0; top: .4rem; width: .5rem; height: .5rem; background: #78a951; border-radius: 50% 0 50% 0; }
+.login-capabilities strong { display: block; font-size: .85rem; }
+.login-capabilities li span { display: block; margin-top: .25rem; color: #52685b; font-size: .8rem; line-height: 1.5; }
+.login-help { margin: 1.75rem 0 0; padding-top: 1.25rem; border-top: 1px solid #e0e7d8; }
+.login-footer { color: #52685b; font-size: .75rem; flex-wrap: wrap; }
+.login-footer > span:first-child { font-weight: 650; }
 @media (max-width: 1200px) { .four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) {
   .sidebar { position: static; width: 100%; }
-  .sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sidebar-foot { margin-top: 1rem; }
   .workspace { margin-left: 0; }
   .four { grid-template-columns: 1fr; }
   .date-filter label { flex: 1 1 140px; }
+  .login-header-caption { display: none; }
+  .login-shell { grid-template-columns: minmax(0, 1fr); gap: 2rem; padding-top: .5rem; }
+  .login-story h1 { font-size: clamp(2.5rem, 8vw, 3.5rem); }
+  .login-illustration { max-width: 440px; margin: -.5rem auto 0; }
+  .login-card { width: 100%; max-width: 480px; margin: 0 auto; }
 }

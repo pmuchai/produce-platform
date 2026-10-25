@@ -1,9 +1,11 @@
 package com.primeroot.platform.inventory;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
+import java.util.Currency;
 
 import com.primeroot.platform.access.Branch;
 import com.primeroot.platform.catalogue.CatalogueQuantityService.Conversion;
@@ -48,6 +50,12 @@ public class StockBatch {
 	private boolean measured;
 	@Column(nullable = false, precision = 19, scale = 6)
 	private BigDecimal quantity;
+	@Column(length = 3, updatable = false)
+	private String currency;
+	@Column(precision = 19, scale = 6, updatable = false)
+	private BigDecimal purchaseUnitCost;
+	@Column(precision = 38, scale = 6, updatable = false)
+	private BigDecimal receivedCost;
 	@Column(nullable = false, updatable = false)
 	private Instant createdAt = Instant.now();
 	@Version
@@ -56,7 +64,8 @@ public class StockBatch {
 	protected StockBatch() {
 	}
 
-	StockBatch(StockOperation operation, InventoryDtos.ReceiptLine line, LocalDate receivedDate, Conversion conversion) {
+	StockBatch(StockOperation operation, InventoryDtos.ReceiptLine line, LocalDate receivedDate,
+			Conversion conversion, Currency currency) {
 		this.operation = operation;
 		branch = operation.getBranch();
 		product = conversion.product();
@@ -70,6 +79,10 @@ public class StockBatch {
 		conversionNumerator = conversion.numerator();
 		conversionDenominator = conversion.denominator();
 		measured = conversion.measured();
+		this.currency = currency.getCurrencyCode();
+		purchaseUnitCost = line.purchaseUnitCost();
+		receivedCost = inputQuantity.multiply(purchaseUnitCost)
+			.setScale(currency.getDefaultFractionDigits(), RoundingMode.HALF_UP);
 	}
 
 	void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
@@ -87,5 +100,13 @@ public class StockBatch {
 	public BigDecimal getConversionDenominator() { return conversionDenominator; }
 	public boolean isMeasured() { return measured; }
 	public BigDecimal getQuantity() { return quantity; }
+	public String getCurrency() { return currency; }
+	public BigDecimal getPurchaseUnitCost() { return purchaseUnitCost; }
+	public BigDecimal getReceivedCost() {
+		return receivedCost == null ? null : receivedCost.setScale(Currency.getInstance(currency).getDefaultFractionDigits());
+	}
+	public BigDecimal getBaseUnitCost() {
+		return receivedCost == null ? null : receivedCost.divide(receivedQuantity, 12, RoundingMode.HALF_UP);
+	}
 	public Instant getCreatedAt() { return createdAt; }
 }

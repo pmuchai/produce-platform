@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Prime Root connects fresh produce receiving, branch inventory and batch traceability in one distribution workspace.">
+  <title>Sign in | Prime Root</title>
+  <link rel="icon" type="image/svg+xml" th:href="@{/assets/prime-root-mark.svg}">
+  <link rel="stylesheet" th:href="@{/assets/app.css}">
+</head>
+<body class="login-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="login-header">
+  <a class="brand" th:href="@{/}"><img class="brand-mark" th:src="@{/assets/prime-root-mark.svg}" width="44" height="44" alt="">Prime Root</a>
+  <span class="login-header-caption">Fresh produce. Connected operations.</span>
+</header>
+<main id="main" class="login-shell">
+  <section class="login-story" aria-labelledby="produce-heading">
+    <p class="eyebrow">YOUR FRESH PRODUCE DISTRIBUTION WORKSPACE</p>
+    <h1 id="produce-heading">Good produce.<br><em>Great connections.</em></h1>
+    <p class="login-intro">From the first delivery to every branch, keep your produce,
+      people and stock moving together.</p>
+    <figure class="login-illustration">
+      <img th:src="@{/assets/produce-distribution.svg}" width="720" height="520"
+        alt="Crates of tomatoes, onions and leafy greens, with a delivery truck connecting a farm to a branch warehouse.">
+      <figcaption>Rooted at the farm. Connected to every branch.</figcaption>
+    </figure>
+  </section>
+  <section class="login-card" aria-labelledby="signin-heading">
+    <div class="login-card-heading">
+      <img th:src="@{/assets/prime-root-mark.svg}" width="52" height="52" alt="">
+      <p class="eyebrow">TEAM WORKSPACE</p>
+    </div>
+    <h2 id="signin-heading">Welcome to Prime Root</h2>
+    <p class="muted">A fresh start to your working day. Sign in to manage your branch's produce and stock.</p>
+    <a id="sign-in" class="login-button" th:href="@{/oauth2/authorization/keycloak}">
+      Sign in securely
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+    </a>
+    <p class="login-security">You'll continue to Keycloak, our secure sign-in provider.
+      Your password is never collected by this application.</p>
+    <div class="login-capabilities">
+      <h3>One connected produce operation</h3>
+      <ul>
+        <li><strong>Receive with confidence</strong><span>Record deliveries, batches and purchase costs.</span></li>
+        <li><strong>Know your stock</strong><span>See on-hand quantities across your permitted branches.</span></li>
+        <li><strong>Keep freshness in focus</strong><span>Track expiry alerts, spoilage and stock movements.</span></li>
+      </ul>
+    </div>
+    <p class="login-help">Need access? Contact your administrator to approve your staff account and branch access.</p>
+  </section>
+</main>
+<footer class="login-footer"><span>Prime Root</span><span>Fresh produce, thoughtfully connected.</span></footer>
+</body>
+</html>

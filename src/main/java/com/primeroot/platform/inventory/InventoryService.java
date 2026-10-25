@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Currency;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -47,6 +48,7 @@ import com.primeroot.platform.inventory.StockOperation.Kind;
 import com.primeroot.platform.ui.DashboardPeriod;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Page;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -69,11 +71,13 @@ public class InventoryService {
 	private final StockThresholdRepository thresholds;
 	private final AuditRepository audit;
 	private final JsonMapper json;
+	private final Currency businessCurrency;
 
 	public InventoryService(AccessService access, BranchRepository branches, ProductRepository products,
 			UnitRepository units, CatalogueQuantityService quantities, StockOperationRepository operations,
 			StockBatchRepository batches, StockMovementRepository movements,
-			StockThresholdRepository thresholds, AuditRepository audit, JsonMapper json) {
+			StockThresholdRepository thresholds, AuditRepository audit, JsonMapper json,
+			@Value("${platform.inventory.currency}") String currency) {
 		this.access = access;
 		this.branches = branches;
 		this.products = products;
@@ -85,6 +89,7 @@ public class InventoryService {
 		this.thresholds = thresholds;
 		this.audit = audit;
 		this.json = json;
+		this.businessCurrency = currency(currency);
 	}
 
 	@Transactional
@@ -94,6 +99,9 @@ public class InventoryService {
 		var hash = fingerprint(Kind.RECEIPT, actor.getId(), request);
 		var previous = previous(request.requestId(), hash);
 		if (previous != null) return previous;
+		if (!businessCurrency.getCurrencyCode().equalsIgnoreCase(request.currency())) {
+			throw invalid("Receipts must use the configured business currency: " + businessCurrency.getCurrencyCode());
+		}
 		if (!branch.isActive()) throw invalid("Receive stock into an active branch");
 		var today = LocalDate.now(ZoneOffset.UTC);
 		if (request.receivedDate().isBefore(LocalDate.of(1970, 1, 1)) || request.receivedDate().isAfter(today)) {
@@ -107,7 +115,7 @@ public class InventoryService {
 				throw invalid("Expiry/best-before date must be on or after receipt and no later than 9999-12-31");
 			}
 			var conversion = quantities.resolve(line.productId(), line.unitId(), line.quantity(), line.measuredBaseQuantity());
-			var batch = batches.save(new StockBatch(operation, line, request.receivedDate(), conversion));
+			var batch = batches.save(new StockBatch(operation, line, request.receivedDate(), conversion, businessCurrency));
 			movements.save(new StockMovement(operation, batch, Kind.RECEIPT, conversion.quantity(), null));
 		}
 		record(operation);
@@ -249,7 +257,8 @@ public class InventoryService {
 				.map(unit -> new UnitOption(unit.getId(), unit.getCode())).toList(),
 			balances, movementResponses(history.getContent()), history.getTotalElements(), page,
 			ids.isEmpty() ? 0 : batches.lowStockCount(ids),
-			ids.isEmpty() ? 0 : batches.nearExpiryCount(ids, today.plusDays(7)));
+			ids.isEmpty() ? 0 : batches.nearExpiryCount(ids, today.plusDays(7)),
+			businessCurrency.getCurrencyCode());
 	}
 
 	public BatchPage batchPage(UUID branchId, String search, int page) {
@@ -344,6 +353,20 @@ public class InventoryService {
 
 	private static ResponseStatusException invalid(String detail) {
 		return new ResponseStatusException(HttpStatus.BAD_REQUEST, detail);
+	}
+
+	private static Currency currency(String code) {
+		final Currency currency;
+		try {
+			currency = Currency.getInstance(code.toUpperCase(Locale.ROOT));
+		}
+		catch (IllegalArgumentException exception) {
+			throw new IllegalArgumentException("platform.inventory.currency must be a supported three-letter ISO currency code", exception);
+		}
+		if (currency.getDefaultFractionDigits() < 0 || currency.getDefaultFractionDigits() > 6) {
+			throw new IllegalArgumentException("platform.inventory.currency must have between zero and six fractional digits");
+		}
+		return currency;
 	}
 
 	private static ResponseStatusException conflict(String detail) {

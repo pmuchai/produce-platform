@@ -41,6 +41,12 @@ public class WorkspaceController {
 		boolean global = current.staff().allBranches();
 		model.addAttribute("current", current);
 		model.addAttribute("page", page);
+		model.addAttribute("navGroup", switch (page) {
+			case "receipts", "stock" -> "stock";
+			case "stock-report", "movement-report", "audit-report" -> "reports";
+			case "catalogue", "branches", "configurations" -> "configurations";
+			default -> page;
+		});
 		model.addAttribute("canCatalogue", permissions.contains(Permission.CATALOGUE_VIEW));
 		model.addAttribute("manageCatalogue", global && permissions.contains(Permission.CATALOGUE_MANAGE));
 		model.addAttribute("canBranches", permissions.contains(Permission.BRANCH_VIEW));
@@ -82,7 +88,7 @@ public class WorkspaceController {
 		return "dashboard";
 	}
 
-	@GetMapping({"/ui/stock-entries", "/ui/stock"})
+	@GetMapping({"/ui/stock-entries", "/ui/stock", "/ui/reports/stock", "/ui/reports/stock-movements"})
 	public String inventory(Model model, jakarta.servlet.http.HttpServletRequest request,
 			@RequestParam(required = false) UUID branchId,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
@@ -91,8 +97,24 @@ public class WorkspaceController {
 			@RequestParam(required = false) String batchSearch) {
 		var period = DashboardPeriod.resolve(start, end);
 		model.addAttribute("inventory", inventory.snapshot(branchId, period, page));
-		model.addAttribute("batchPage", inventory.batchPage(branchId, batchSearch, batchPage));
-		workspace(model, request.getServletPath().endsWith("stock-entries") ? "receipts" : "stock");
+		var path = request.getServletPath();
+		var workspacePage = switch (path) {
+			case "/ui/stock-entries" -> "receipts";
+			case "/ui/reports/stock" -> "stock-report";
+			case "/ui/reports/stock-movements" -> "movement-report";
+			default -> "stock";
+		};
+		if (!workspacePage.equals("movement-report")) {
+			model.addAttribute("batchPage", inventory.batchPage(branchId, batchSearch, batchPage));
+		}
+		workspace(model, workspacePage);
+		model.addAttribute("inventoryPath", path);
+		model.addAttribute("inventoryTitle", switch (workspacePage) {
+			case "receipts" -> "Receive stock";
+			case "stock-report" -> "Stock levels report";
+			case "movement-report" -> "Stock movements report";
+			default -> "Stock Movement";
+		});
 		model.addAttribute("period", period);
 		model.addAttribute("selectedBranch", branchId);
 		return "inventory";
@@ -101,7 +123,7 @@ public class WorkspaceController {
 	@GetMapping("/ui/catalogue")
 	public String catalogue(Model model) {
 		var snapshot = catalogue.list();
-		workspace(model, "configurations");
+		workspace(model, "catalogue");
 		model.addAttribute("catalogue", snapshot);
 		Map<UUID, String> labels = new LinkedHashMap<>();
 		snapshot.types().forEach(item -> labels.put(item.id(), item.name()));
@@ -115,7 +137,7 @@ public class WorkspaceController {
 	@GetMapping("/ui/branches")
 	public String branches(Model model) {
 		model.addAttribute("branches", branches.list());
-		workspace(model, "configurations");
+		workspace(model, "branches");
 		return "branches";
 	}
 
@@ -126,7 +148,7 @@ public class WorkspaceController {
 		return "users";
 	}
 
-	@GetMapping("/ui/reports")
+	@GetMapping({"/ui/reports", "/ui/reports/audit"})
 	public String reports(Model model,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end) {
@@ -134,7 +156,7 @@ public class WorkspaceController {
 		model.addAttribute("events", audit.list(period.from(), period.until()));
 		model.addAttribute("eventCount", audit.count(period.from(), period.until()));
 		model.addAttribute("period", period);
-		workspace(model, "reports");
+		workspace(model, "audit-report");
 		return "reports";
 	}
 

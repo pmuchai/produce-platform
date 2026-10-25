@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @EnabledIfSystemProperty(named = "ui.browser", matches = ".+")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-	"platform.bootstrap.enabled=false", "server.servlet.session.cookie.secure=false",
+	"platform.bootstrap.enabled=false", "server.servlet.session.cookie.secure=false", "platform.inventory.currency=KES",
 	"spring.datasource.url=jdbc:h2:mem:catalogue-browser-tests;MODE=PostgreSQL"})
 class CatalogueBrowserTests extends OidcTestSupport {
 	@Autowired
@@ -40,11 +40,8 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		staff.bootstrap("admin", "Browser Administrator", OidcTestProvider.ADMIN_SUBJECT);
 		try (var session = browser()) {
 			session.adminLogin();
-			var cookie = session.cookies.getCookieStore().getCookies().stream()
-				.filter(item -> item.getName().equals("JSESSIONID")).findFirst().orElseThrow();
 			try (var chrome = new Chrome()) {
-				chrome.command("Network.setCookie", Map.of("name", "JSESSIONID", "value", cookie.getValue(),
-					"url", "http://localhost:" + port, "httpOnly", true, "sameSite", "Lax"));
+				verifyPublicLogin(chrome);
 				chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/catalogue"));
 				chrome.await("document.title.startsWith('Catalogue') && document.readyState === 'complete'");
 				chrome.evaluate("""
@@ -101,13 +98,38 @@ class CatalogueBrowserTests extends OidcTestSupport {
 				chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
 					"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
 				assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
+				navigateSidebar(chrome, "stock", "/ui/stock");
+				assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
+				navigateSidebar(chrome, "reports", "/ui/reports/stock");
+				assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
 			}
 		}
 	}
 
+	private void verifyPublicLogin(Chrome chrome) throws Exception {
+		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/"));
+		chrome.await("document.title === 'Sign in | Prime Root' && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("""
+			[...document.images].every(image => image.complete && image.naturalWidth > 0)
+			""").asBoolean()).isTrue();
+		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('#sign-in')).backgroundColor").asText())
+			.isEqualTo("rgb(23, 103, 69)");
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
+		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('.login-shell')).gridTemplateColumns.split(' ').length").asInt()).isEqualTo(1);
+		chrome.command("Emulation.clearDeviceMetricsOverride", Map.of());
+		chrome.evaluate("document.querySelector('#sign-in').click(); true");
+		chrome.await("location.pathname === '/home' && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('.brand').textContent").asText()).isEqualTo("Prime Root");
+	}
+
 	private void verifyInventoryWorkspace(Chrome chrome, String branchId, String productId) throws Exception {
-		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/stock-entries"));
+		navigateSidebar(chrome, "stock", "/ui/stock-entries");
 		chrome.await("document.querySelector('#stock-receipt') !== null && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('h1').textContent").asText()).isEqualTo("Receive stock");
+		assertThat(chrome.evaluate("document.querySelector('#stock-history') === null").asBoolean()).isTrue();
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('#stock-receipt');
 			f.elements.branchId.value = '%s'; f.elements.source.value = 'UI Farm';
@@ -115,12 +137,14 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			line.querySelector('[name="productId"]').value = '%s';
 			line.querySelector('[name="unitId"]').value = '10000000-0000-0000-0000-000000000001';
 			line.querySelector('[name="quantity"]').value = '2';
+			line.querySelector('[name="purchaseUnitCost"]').value = '80.123456';
 			line.querySelector('[name="lotCode"]').value = 'UI_KG_LOT';
 			document.querySelector('#add-receipt-line').click();
 			const measured = f.querySelectorAll('.receipt-line')[1];
 			measured.querySelector('[name="productId"]').value = '%s';
 			measured.querySelector('[name="unitId"]').value = '10000000-0000-0000-0000-000000000005';
 			measured.querySelector('[name="quantity"]').value = '2';
+			measured.querySelector('[name="purchaseUnitCost"]').value = '2000';
 			measured.querySelector('[name="measuredBaseQuantity"]').value = '3.123456';
 			measured.querySelector('[name="lotCode"]').value = 'UI_MEASURED_LOT';
 			f.requestSubmit(); return true; })()
@@ -128,8 +152,11 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		chrome.await("document.querySelector('#stock-batches').innerText.includes('UI_MEASURED_LOT')");
 		chrome.ready();
 		assertThat(chrome.evaluate("document.querySelector('#stock-balances').innerText").asText()).contains("5.123456 KG");
-		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/stock"));
+		assertThat(chrome.evaluate("document.querySelector('#stock-batches').innerText").asText())
+			.contains("KES 160.25", "KES 4000.00", "2000.000000 / BAG");
+		navigateSidebar(chrome, "stock", "/ui/stock");
 		chrome.await("document.querySelector('form[data-stock=\"spoilage\"]') !== null && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('h1').textContent").asText()).isEqualTo("Stock Movement");
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('form[data-stock="spoilage"]');
 			const batch = [...f.elements.batchId.options].find(o => o.text.includes('UI_MEASURED_LOT'));
@@ -178,6 +205,32 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			""");
 		chrome.await("document.querySelector('form[data-stock=\"spoilage\"] .form-message').classList.contains('error')");
 		assertThat(chrome.evaluate("document.querySelector('#stock-balances').innerText").asText()).contains("5.000000 KG");
+		navigateSidebar(chrome, "reports", "/ui/reports/stock");
+		assertThat(chrome.evaluate("document.querySelector('#stock-batches').innerText").asText()).contains("KES 160.25", "KES 4000.00");
+		assertThat(chrome.evaluate("document.querySelector('#stock-balances').innerText").asText()).contains("5.000000 KG");
+		assertThat(chrome.evaluate("document.querySelectorAll('form[data-stock], [data-reverse], [data-threshold]').length").asInt()).isZero();
+		navigateSidebar(chrome, "reports", "/ui/reports/stock-movements");
+		assertThat(chrome.evaluate("document.querySelector('#stock-history').innerText").asText()).contains("UI bruising", "UI count correction");
+		assertThat(chrome.evaluate("document.querySelectorAll('form[data-stock], [data-reverse], [data-threshold]').length").asInt()).isZero();
+		navigateSidebar(chrome, "reports", "/ui/reports/audit");
+		assertThat(chrome.evaluate("document.querySelector('h1').textContent").asText()).isEqualTo("Audit activity report");
+		navigateSidebar(chrome, "configurations", "/ui/branches");
+		navigateSidebar(chrome, "configurations", "/ui/catalogue");
+	}
+
+	private void navigateSidebar(Chrome chrome, String group, String path) throws Exception {
+		chrome.evaluate("""
+			(() => { const group = document.querySelector('#nav-%s');
+			if (!group.open) group.querySelector('summary').click(); return true; })()
+			""".formatted(group));
+		chrome.await("document.querySelector('#nav-%s a[href=\"%s\"]').getClientRects().length > 0".formatted(group, path));
+		chrome.evaluate("document.querySelector('#nav-%s a[href=\"%s\"]').click(); true".formatted(group, path));
+		chrome.await("""
+			location.pathname === '%s' && document.readyState === 'complete' &&
+			document.querySelector('#nav-%s').open &&
+			document.querySelector('#nav-%s a[aria-current="page"]').getAttribute('href') === '%s'
+			""".formatted(path, group, group, path));
+		assertThat(chrome.evaluate("document.querySelectorAll('.sidebar a[aria-current=\"page\"]').length").asInt()).isEqualTo(1);
 	}
 
 	private final class Chrome implements WebSocket.Listener, AutoCloseable {

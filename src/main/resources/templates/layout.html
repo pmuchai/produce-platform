@@ -6,27 +6,59 @@
   <meta name="csrf-token" th:content="${_csrf.token}">
   <meta name="csrf-header" th:content="${_csrf.headerName}">
   <meta name="app-base" th:content="@{/}">
-  <title th:text="${title} + ' | Produce Platform'">Produce Platform</title>
+  <title th:text="${title} + ' | Prime Root'">Prime Root</title>
+  <link rel="icon" type="image/svg+xml" th:href="@{/assets/prime-root-mark.svg}">
   <link rel="stylesheet" th:href="@{/assets/app.css}">
   <script defer th:src="@{/assets/app.js}"></script>
 </head>
 <body>
 <aside th:fragment="sidebar" class="sidebar">
-  <a class="brand" th:href="@{/home}"><span class="brand-mark">P</span>Produce Platform</a>
+  <a class="brand" th:href="@{/home}"><img class="brand-mark" th:src="@{/assets/prime-root-mark.svg}" width="44" height="44" alt="">Prime Root</a>
   <p class="nav-caption">WORKSPACE</p>
   <nav aria-label="Main navigation">
-    <a th:href="@{/home}" th:attr="aria-current=${page == 'dashboard' ? 'page' : null}">Dashboard</a>
-    <span aria-disabled="true">Sales <small>Coming later</small></span>
-    <a th:if="${canStock}" th:href="@{/ui/stock-entries}" th:attr="aria-current=${page == 'receipts' ? 'page' : null}">Receivables / Stock entries</a>
-    <span th:unless="${canStock}" aria-disabled="true">Receivables / Stock entries <small>No access</small></span>
-    <a th:if="${canStock}" th:href="@{/ui/stock}" th:attr="aria-current=${page == 'stock' ? 'page' : null}">Stock movement</a>
-    <span th:unless="${canStock}" aria-disabled="true">Stock movement <small>No access</small></span>
-    <a th:if="${canAudit}" th:href="@{/ui/reports}" th:attr="aria-current=${page == 'reports' ? 'page' : null}">Reports</a>
-    <a th:if="${canStock and !canAudit}" th:href="@{/ui/stock}">Reports</a>
-    <span th:unless="${canAudit or canStock}" aria-disabled="true">Reports <small>No access</small></span>
-    <a th:if="${canUsers}" th:href="@{/ui/users}" th:attr="aria-current=${page == 'users' ? 'page' : null}">User management</a>
-    <span th:unless="${canUsers}" aria-disabled="true">User management <small>No access</small></span>
-    <a th:href="@{/ui/configurations}" th:attr="aria-current=${page == 'configurations' ? 'page' : null}">Configurations</a>
+    <details class="nav-group" id="nav-dashboard" th:open="${navGroup == 'dashboard'}">
+      <summary>Dashboard</summary>
+      <ul class="nav-children"><li><a th:href="@{/home}" th:attr="aria-current=${page == 'dashboard' ? 'page' : null}">Overview</a></li></ul>
+    </details>
+    <details class="nav-group" id="nav-sales">
+      <summary>Sales</summary>
+      <ul class="nav-children"><li><span aria-disabled="true">New sale <small>Coming later</small></span></li></ul>
+    </details>
+    <details class="nav-group" id="nav-stock" th:open="${navGroup == 'stock'}">
+      <summary>Stock</summary>
+      <ul class="nav-children">
+        <li><a th:if="${canStock and receiveStock}" th:href="@{/ui/stock-entries}" th:attr="aria-current=${page == 'receipts' ? 'page' : null}">Receive stock</a>
+          <span th:unless="${canStock and receiveStock}" aria-disabled="true">Receive stock <small>No access</small></span></li>
+        <li><a th:if="${canStock}" th:href="@{/ui/stock}" th:attr="aria-current=${page == 'stock' ? 'page' : null}">Stock Movement</a>
+          <span th:unless="${canStock}" aria-disabled="true">Stock Movement <small>No access</small></span></li>
+      </ul>
+    </details>
+    <details class="nav-group" id="nav-reports" th:open="${navGroup == 'reports'}">
+      <summary>Reports</summary>
+      <ul class="nav-children">
+        <li><a th:if="${canStock}" th:href="@{/ui/reports/stock}" th:attr="aria-current=${page == 'stock-report' ? 'page' : null}">Stock levels</a>
+          <span th:unless="${canStock}" aria-disabled="true">Stock levels <small>No access</small></span></li>
+        <li><a th:if="${canStock}" th:href="@{/ui/reports/stock-movements}" th:attr="aria-current=${page == 'movement-report' ? 'page' : null}">Stock movements</a>
+          <span th:unless="${canStock}" aria-disabled="true">Stock movements <small>No access</small></span></li>
+        <li><a th:if="${canAudit}" th:href="@{/ui/reports/audit}" th:attr="aria-current=${page == 'audit-report' ? 'page' : null}">Audit activity</a>
+          <span th:unless="${canAudit}" aria-disabled="true">Audit activity <small>No access</small></span></li>
+      </ul>
+    </details>
+    <details class="nav-group" id="nav-users" th:open="${navGroup == 'users'}">
+      <summary>User management</summary>
+      <ul class="nav-children"><li><a th:if="${canUsers}" th:href="@{/ui/users}" th:attr="aria-current=${page == 'users' ? 'page' : null}">Staff directory</a>
+        <span th:unless="${canUsers}" aria-disabled="true">Staff directory <small>No access</small></span></li></ul>
+    </details>
+    <details class="nav-group" id="nav-configurations" th:open="${navGroup == 'configurations'}">
+      <summary>Configurations</summary>
+      <ul class="nav-children">
+        <li><a th:href="@{/ui/configurations}" th:attr="aria-current=${page == 'configurations' ? 'page' : null}">Overview</a></li>
+        <li><a th:if="${canCatalogue}" th:href="@{/ui/catalogue}" th:attr="aria-current=${page == 'catalogue' ? 'page' : null}">Catalogue and units</a>
+          <span th:unless="${canCatalogue}" aria-disabled="true">Catalogue and units <small>No access</small></span></li>
+        <li><a th:if="${canBranches}" th:href="@{/ui/branches}" th:attr="aria-current=${page == 'branches' ? 'page' : null}">Branches</a>
+          <span th:unless="${canBranches}" aria-disabled="true">Branches <small>No access</small></span></li>
+      </ul>
+    </details>
   </nav>
   <div class="sidebar-foot">
     <strong th:text="${current.staff.fullName}">Staff member</strong>
@@ -35,7 +67,7 @@
   </div>
 </aside>
 <header th:fragment="header(title, subtitle)" class="page-header">
-  <div><p class="eyebrow">PRODUCE PLATFORM</p><h1 th:text="${title}">Dashboard</h1><p class="muted" th:text="${subtitle}"></p></div>
+  <div><p class="eyebrow">PRIME ROOT</p><h1 th:text="${title}">Dashboard</h1><p class="muted" th:text="${subtitle}"></p></div>
   <span class="badge">Phase 3 / Inventory</span>
 </header>
 <form th:fragment="dates(action)" method="get" th:action="${action}" class="date-filter panel">
