@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"><body>
+<div th:fragment="balances">
+  <p class="hint">Current stock is live. As-of stock is at the end of the selected UTC interval, from posting history.
+    Receipts and spoilage are net posted quantities, including reversals; previous means the preceding equal-length interval.
+    All quantities use the product's base unit. Different units are never added together.</p>
+  <div class="table-scroll"><table id="stock-balances">
+    <thead><tr><th>Branch / product</th><th>Current</th><th>As of interval end</th><th>Receipts / previous</th><th>Spoilage / previous</th><th>Minimum / status</th></tr></thead>
+    <tbody><tr th:each="balance : ${inventory.balances}">
+      <td><strong th:text="${balance.product}"></strong><small th:text="${balance.branch}"></small></td>
+      <td th:text="${balance.current} + ' ' + ${balance.baseUnit}"></td>
+      <td th:text="${balance.asOf} + ' ' + ${balance.baseUnit}"></td>
+      <td th:text="${balance.receipts} + ' / ' + ${balance.previousReceipts} + ' ' + ${balance.baseUnit}"></td>
+      <td th:text="${balance.spoilage} + ' / ' + ${balance.previousSpoilage} + ' ' + ${balance.baseUnit}"></td>
+      <td><span th:text="${balance.minimum == null ? 'Not configured' : balance.minimum + ' ' + balance.baseUnit}"></span>
+        <small th:if="${balance.lowStock}" class="warning">At or below minimum</small>
+        <button th:if="${adjustStock and page == 'stock'}" type="button" class="secondary"
+          data-threshold th:attr="data-branch=${balance.branchId},data-product=${balance.productId},data-minimum=${balance.minimum},data-version=${balance.thresholdVersion}">Set minimum</button>
+      </td>
+    </tr><tr th:if="${inventory.balances.isEmpty()}"><td colspan="6">No stock or thresholds recorded within your branch scope.</td></tr></tbody>
+  </table></div>
+</div>
+</body></html>

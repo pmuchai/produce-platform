@@ -1,7 +1,6 @@
 package com.primeroot.platform.catalogue;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.UUID;
 
 import com.primeroot.platform.access.AccessService;
@@ -37,10 +36,11 @@ public class CatalogueService {
 	private final PackagingRepository packaging;
 	private final AccessService access;
 	private final AuditRepository audit;
+	private final CatalogueQuantityService quantities;
 
 	public CatalogueService(ProduceTypeRepository types, ClassificationRepository classifications,
 			UnitRepository units, ProductRepository products, PackagingRepository packaging,
-			AccessService access, AuditRepository audit) {
+			AccessService access, AuditRepository audit, CatalogueQuantityService quantities) {
 		this.types = types;
 		this.classifications = classifications;
 		this.units = units;
@@ -48,6 +48,7 @@ public class CatalogueService {
 		this.packaging = packaging;
 		this.access = access;
 		this.audit = audit;
+		this.quantities = quantities;
 	}
 
 	public Snapshot list() {
@@ -180,24 +181,8 @@ public class CatalogueService {
 
 	public ConversionResponse convert(ConvertRequest request) {
 		access.requirePermission(Permission.CATALOGUE_VIEW);
-		var product = find(products, request.productId());
-		var from = find(units, request.fromUnitId());
-		var base = product.getBaseUnit();
-		requireActive(true, product, product.getProduceType(), from, base, product.getVariety(), product.getGrade());
-		BigDecimal quantity;
-		if (from.getDimension() == UnitOfMeasure.Dimension.PACKAGING) {
-			var pack = packaging.findByProductIdAndUnitId(product.getId(), from.getId())
-				.orElseThrow(() -> badRequest("No fixed packaging conversion is defined for this product"));
-			quantity = request.quantity().multiply(pack.getQuantityInBaseUnit());
-		}
-		else {
-			if (from.getDimension() != base.getDimension()) {
-				throw badRequest("Cannot convert between incompatible measurement dimensions");
-			}
-			quantity = request.quantity().multiply(from.getBaseFactor())
-				.divide(base.getBaseFactor(), 6, RoundingMode.HALF_UP);
-		}
-		return new ConversionResponse(quantity.setScale(6, RoundingMode.HALF_UP), base.getCode());
+		var conversion = quantities.resolve(request.productId(), request.fromUnitId(), request.quantity(), null);
+		return new ConversionResponse(conversion.quantity(), conversion.product().getBaseUnit().getCode());
 	}
 
 	private ProductClassification classification(UUID id, ProduceType type, ProductClassification.Kind kind) {

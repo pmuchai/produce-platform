@@ -36,7 +36,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 	Path profile;
 
 	@Test
-	void consecutiveCatalogueSavesRefreshTablesAndCalculatorUsesExactPackagingDecimals() throws Exception {
+	void catalogueAndInventoryFormsPostConsecutiveChangesWithExactDecimalsAndVisibleErrors() throws Exception {
 		staff.bootstrap("admin", "Browser Administrator", OidcTestProvider.ADMIN_SUBJECT);
 		try (var session = browser()) {
 			session.adminLogin();
@@ -92,11 +92,92 @@ class CatalogueBrowserTests extends OidcTestSupport {
 					f.elements.name.value = 'Duplicate'; f.requestSubmit(); return true; })()
 					""");
 				chrome.await("document.querySelector('form[data-resource=\"types\"] .form-message').classList.contains('error')");
+				var branchResponse = session.mutate("POST", "/api/branches", Map.of(
+					"code", "UI_STOCK", "name", "UI Stock Branch", "active", true));
+				assertThat(branchResponse.statusCode()).isEqualTo(201);
+				var branchId = session.body(branchResponse).get("id").asText();
+				var productId = session.body(session.get("/api/catalogue")).get("products").get(0).get("id").asText();
+				verifyInventoryWorkspace(chrome, branchId, productId);
 				chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
 					"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
 				assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
 			}
 		}
+	}
+
+	private void verifyInventoryWorkspace(Chrome chrome, String branchId, String productId) throws Exception {
+		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/stock-entries"));
+		chrome.await("document.querySelector('#stock-receipt') !== null && document.readyState === 'complete'");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#stock-receipt');
+			f.elements.branchId.value = '%s'; f.elements.source.value = 'UI Farm';
+			const line = f.querySelector('.receipt-line');
+			line.querySelector('[name="productId"]').value = '%s';
+			line.querySelector('[name="unitId"]').value = '10000000-0000-0000-0000-000000000001';
+			line.querySelector('[name="quantity"]').value = '2';
+			line.querySelector('[name="lotCode"]').value = 'UI_KG_LOT';
+			document.querySelector('#add-receipt-line').click();
+			const measured = f.querySelectorAll('.receipt-line')[1];
+			measured.querySelector('[name="productId"]').value = '%s';
+			measured.querySelector('[name="unitId"]').value = '10000000-0000-0000-0000-000000000005';
+			measured.querySelector('[name="quantity"]').value = '2';
+			measured.querySelector('[name="measuredBaseQuantity"]').value = '3.123456';
+			measured.querySelector('[name="lotCode"]').value = 'UI_MEASURED_LOT';
+			f.requestSubmit(); return true; })()
+			""".formatted(branchId, productId, productId));
+		chrome.await("document.querySelector('#stock-batches').innerText.includes('UI_MEASURED_LOT')");
+		chrome.ready();
+		assertThat(chrome.evaluate("document.querySelector('#stock-balances').innerText").asText()).contains("5.123456 KG");
+		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/stock"));
+		chrome.await("document.querySelector('form[data-stock=\"spoilage\"]') !== null && document.readyState === 'complete'");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('form[data-stock="spoilage"]');
+			const batch = [...f.elements.batchId.options].find(o => o.text.includes('UI_MEASURED_LOT'));
+			f.elements.batchId.value = batch.value; f.elements.batchId.dispatchEvent(new Event('change'));
+			f.elements.quantity.value = '0.123456'; f.elements.reason.value = 'UI bruising';
+			f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('#stock-balances').innerText.includes('5.000000 KG')");
+		chrome.ready();
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('form[data-stock="adjustments"]');
+			const batch = [...f.elements.batchId.options].find(o => o.text.includes('UI_KG_LOT'));
+			f.elements.batchId.value = batch.value; f.elements.batchId.dispatchEvent(new Event('change'));
+			f.elements.quantity.value = '1'; f.elements.reason.value = 'UI count correction';
+			f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('#stock-balances').innerText.includes('6.000000 KG')");
+		chrome.ready();
+		chrome.evaluate("""
+			(() => { const row = [...document.querySelectorAll('#stock-history tbody tr')]
+			.find(r => r.innerText.includes('UI count correction')); row.querySelector('[data-reverse]').click();
+			const f = document.querySelector('form[data-stock="reversals"]');
+			f.elements.reason.value = 'UI reversal'; f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('#stock-balances').innerText.includes('5.000000 KG')");
+		chrome.ready();
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('form[data-stock="thresholds"]');
+			f.elements.branchId.value = '%s'; f.elements.productId.value = '%s';
+			f.elements.minimumQuantity.value = '7'; f.requestSubmit(); return true; })()
+			""".formatted(branchId, productId));
+		chrome.await("document.querySelector('#stock-balances').innerText.includes('At or below minimum')");
+		chrome.ready();
+		chrome.evaluate("""
+			(() => { document.querySelector('[data-threshold]').click();
+			const f = document.querySelector('form[data-stock="thresholds"]');
+			f.elements.minimumQuantity.value = '0'; f.requestSubmit(); return true; })()
+			""");
+		chrome.await("!document.querySelector('#stock-balances').innerText.includes('At or below minimum')");
+		chrome.ready();
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('form[data-stock="spoilage"]');
+			f.elements.batchId.selectedIndex = 1; f.elements.batchId.dispatchEvent(new Event('change'));
+			f.elements.quantity.value = '99'; f.elements.reason.value = 'Too much';
+			f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('form[data-stock=\"spoilage\"] .form-message').classList.contains('error')");
+		assertThat(chrome.evaluate("document.querySelector('#stock-balances').innerText").asText()).contains("5.000000 KG");
 	}
 
 	private final class Chrome implements WebSocket.Listener, AutoCloseable {

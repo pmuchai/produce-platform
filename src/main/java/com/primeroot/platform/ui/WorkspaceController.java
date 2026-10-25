@@ -11,6 +11,7 @@ import com.primeroot.platform.access.Permission;
 import com.primeroot.platform.access.StaffService;
 import com.primeroot.platform.audit.AuditService;
 import com.primeroot.platform.catalogue.CatalogueService;
+import com.primeroot.platform.inventory.InventoryService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -23,12 +24,15 @@ public class WorkspaceController {
 	private final BranchService branches;
 	private final CatalogueService catalogue;
 	private final AuditService audit;
+	private final InventoryService inventory;
 
-	public WorkspaceController(StaffService staff, BranchService branches, CatalogueService catalogue, AuditService audit) {
+	public WorkspaceController(StaffService staff, BranchService branches, CatalogueService catalogue,
+			AuditService audit, InventoryService inventory) {
 		this.staff = staff;
 		this.branches = branches;
 		this.catalogue = catalogue;
 		this.audit = audit;
+		this.inventory = inventory;
 	}
 
 	private void workspace(Model model, String page) {
@@ -42,6 +46,10 @@ public class WorkspaceController {
 		model.addAttribute("canBranches", permissions.contains(Permission.BRANCH_VIEW));
 		model.addAttribute("canUsers", global && permissions.contains(Permission.USER_VIEW));
 		model.addAttribute("canAudit", global && permissions.contains(Permission.AUDIT_VIEW));
+		model.addAttribute("canStock", permissions.contains(Permission.STOCK_VIEW));
+		model.addAttribute("receiveStock", permissions.contains(Permission.STOCK_RECEIVE));
+		model.addAttribute("adjustStock", permissions.contains(Permission.STOCK_ADJUST));
+		model.addAttribute("spoilStock", permissions.contains(Permission.STOCK_SPOILAGE));
 		model.addAttribute("today", LocalDate.now(ZoneOffset.UTC));
 	}
 
@@ -52,6 +60,9 @@ public class WorkspaceController {
 		workspace(model, "dashboard");
 		var period = DashboardPeriod.resolve(start, end);
 		model.addAttribute("period", period);
+		if (Boolean.TRUE.equals(model.getAttribute("canStock"))) {
+			model.addAttribute("inventory", inventory.snapshot(null, period, 0));
+		}
 		if (Boolean.TRUE.equals(model.getAttribute("canBranches"))) {
 			model.addAttribute("branches", branches.list());
 		}
@@ -69,6 +80,20 @@ public class WorkspaceController {
 			model.addAttribute("previousCount", previous);
 		}
 		return "dashboard";
+	}
+
+	@GetMapping({"/ui/stock-entries", "/ui/stock"})
+	public String inventory(Model model, jakarta.servlet.http.HttpServletRequest request,
+			@RequestParam(required = false) UUID branchId,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
+			@RequestParam(defaultValue = "0") int page) {
+		var period = DashboardPeriod.resolve(start, end);
+		model.addAttribute("inventory", inventory.snapshot(branchId, period, page));
+		workspace(model, request.getServletPath().endsWith("stock-entries") ? "receipts" : "stock");
+		model.addAttribute("period", period);
+		model.addAttribute("selectedBranch", branchId);
+		return "inventory";
 	}
 
 	@GetMapping("/ui/catalogue")

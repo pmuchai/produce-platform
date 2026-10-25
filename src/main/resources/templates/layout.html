@@ -17,10 +17,13 @@
   <nav aria-label="Main navigation">
     <a th:href="@{/home}" th:attr="aria-current=${page == 'dashboard' ? 'page' : null}">Dashboard</a>
     <span aria-disabled="true">Sales <small>Coming later</small></span>
-    <span aria-disabled="true">Receivables / Stock entries <small>Coming later</small></span>
-    <span aria-disabled="true">Stock movement <small>Coming later</small></span>
+    <a th:if="${canStock}" th:href="@{/ui/stock-entries}" th:attr="aria-current=${page == 'receipts' ? 'page' : null}">Receivables / Stock entries</a>
+    <span th:unless="${canStock}" aria-disabled="true">Receivables / Stock entries <small>No access</small></span>
+    <a th:if="${canStock}" th:href="@{/ui/stock}" th:attr="aria-current=${page == 'stock' ? 'page' : null}">Stock movement</a>
+    <span th:unless="${canStock}" aria-disabled="true">Stock movement <small>No access</small></span>
     <a th:if="${canAudit}" th:href="@{/ui/reports}" th:attr="aria-current=${page == 'reports' ? 'page' : null}">Reports</a>
-    <span th:unless="${canAudit}" aria-disabled="true">Reports <small>No access</small></span>
+    <a th:if="${canStock and !canAudit}" th:href="@{/ui/stock}">Reports</a>
+    <span th:unless="${canAudit or canStock}" aria-disabled="true">Reports <small>No access</small></span>
     <a th:if="${canUsers}" th:href="@{/ui/users}" th:attr="aria-current=${page == 'users' ? 'page' : null}">User management</a>
     <span th:unless="${canUsers}" aria-disabled="true">User management <small>No access</small></span>
     <a th:href="@{/ui/configurations}" th:attr="aria-current=${page == 'configurations' ? 'page' : null}">Configurations</a>
@@ -33,9 +36,10 @@
 </aside>
 <header th:fragment="header(title, subtitle)" class="page-header">
   <div><p class="eyebrow">PRODUCE PLATFORM</p><h1 th:text="${title}">Dashboard</h1><p class="muted" th:text="${subtitle}"></p></div>
-  <span class="badge">Phase 2 / Catalogue &amp; Units</span>
+  <span class="badge">Phase 3 / Inventory</span>
 </header>
 <form th:fragment="dates(action)" method="get" th:action="${action}" class="date-filter panel">
+  <input th:if="${selectedBranch != null}" type="hidden" name="branchId" th:value="${selectedBranch}">
   <label>From (UTC)<input type="date" name="start" required min="1970-01-01" th:max="${today}" th:value="${period.start}"></label>
   <label>To (UTC)<input type="date" name="end" required min="1970-01-01" th:max="${today}" th:value="${period.end}"></label>
   <button type="submit">Apply interval</button><a th:href="${action}">This week</a>
