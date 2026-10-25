@@ -9,6 +9,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 public class LoginController {
 	@GetMapping({"/", "/login"})
 	public String login(@AuthenticationPrincipal OidcUser user) {
-		return user == null ? "login" : "redirect:/home";
+		return user == null ? "redirect:/oauth2/authorization/keycloak" : "redirect:/home";
 	}
 }

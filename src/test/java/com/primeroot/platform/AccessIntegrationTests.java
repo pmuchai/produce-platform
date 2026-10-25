@@ -309,7 +309,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 			var anonymous = browser.get("/home");
 			assertThat(anonymous.statusCode()).isEqualTo(302);
 			assertThat(anonymous.headers().firstValue("Location").orElseThrow())
-				.endsWith("/login");
+				.endsWith("/oauth2/authorization/keycloak");
 			assertThat(browser.login(OidcTestProvider.ADMIN_SUBJECT, List.of("ADMIN"),
 				OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
 			assertThat(browser.get("/home").body()).contains("No summary dashboards", "No business permissions assigned")
@@ -318,16 +318,13 @@ class AccessIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
-	void publicLoginShowsPrimeRootProduceBrandingAndAuthenticatedStaffGoToTheirWorkspace() throws Exception {
+	void landingRoutesStartKeycloakDirectlyAndAuthenticatedStaffGoToTheirWorkspace() throws Exception {
 		try (var browser = browser()) {
 			for (var path : List.of("/", "/login")) {
 				var page = browser.get(path);
-				assertThat(page.statusCode()).as(path).withFailMessage(page.body()).isEqualTo(200);
-				assertThat(page.headers().firstValue("Content-Type").orElseThrow()).startsWith("text/html");
-				assertThat(page.body()).contains("Sign in | Prime Root", "Fresh produce", "Good produce.",
-					"href=\"/oauth2/authorization/keycloak\"", "src=\"/assets/produce-distribution.svg\"",
-					"leafy greens", "branch warehouse", "Keycloak")
-					.doesNotContain("Produce Platform", "type=\"password\"", "data-stock=");
+				assertThat(page.statusCode()).as(path).isEqualTo(302);
+				assertThat(URI.create(page.headers().firstValue("Location").orElseThrow()).getPath())
+					.isEqualTo("/oauth2/authorization/keycloak");
 			}
 			for (var path : List.of("/assets/produce-distribution.svg", "/assets/prime-root-mark.svg")) {
 				var image = browser.get(path);
@@ -472,7 +469,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 					catalogueBrowser.get("/ui/catalogue"))) {
 				assertThat(response.statusCode()).isEqualTo(302);
 				assertThat(URI.create(response.headers().firstValue("Location").orElseThrow()).getPath())
-					.isEqualTo("/login");
+					.isEqualTo("/oauth2/authorization/keycloak");
 			}
 			assertThat(homeBrowser.get("/api/auth/me").statusCode()).isEqualTo(401);
 		}
@@ -632,9 +629,10 @@ class AccessIntegrationTests extends OidcTestSupport {
 			assertThat(providerLogout.statusCode()).isEqualTo(302);
 			assertThat(admin.get("/api/auth/me").statusCode()).isEqualTo(401);
 			var landing = admin.get(providerLogout.headers().firstValue("Location").orElseThrow());
-			assertThat(landing.statusCode()).isEqualTo(200);
-			assertThat(landing.body()).contains("Sign in | Prime Root", "href=\"/oauth2/authorization/keycloak\"");
-			var login = admin.get("/oauth2/authorization/keycloak");
+			assertThat(landing.statusCode()).isEqualTo(302);
+			assertThat(URI.create(landing.headers().firstValue("Location").orElseThrow()).getPath())
+				.isEqualTo("/oauth2/authorization/keycloak");
+			var login = admin.get(landing.headers().firstValue("Location").orElseThrow());
 			assertThat(login.statusCode()).isEqualTo(302);
 			var authorization = URI.create(login.headers().firstValue("Location").orElseThrow());
 			assertThat(authorization.toString()).startsWith(PROVIDER.issuer() + "/auth?");

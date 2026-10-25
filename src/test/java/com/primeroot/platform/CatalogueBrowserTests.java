@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.primeroot.platform.access.StaffService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -108,21 +109,106 @@ class CatalogueBrowserTests extends OidcTestSupport {
 
 	private void verifyPublicLogin(Chrome chrome) throws Exception {
 		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/"));
-		chrome.await("document.title === 'Sign in | Prime Root' && document.readyState === 'complete'");
-		assertThat(chrome.evaluate("""
-			[...document.images].every(image => image.complete && image.naturalWidth > 0)
-			""").asBoolean()).isTrue();
-		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('#sign-in')).backgroundColor").asText())
-			.isEqualTo("rgb(23, 103, 69)");
-		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
-		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
-			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
-		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
-		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('.login-shell')).gridTemplateColumns.split(' ').length").asInt()).isEqualTo(1);
-		chrome.command("Emulation.clearDeviceMetricsOverride", Map.of());
-		chrome.evaluate("document.querySelector('#sign-in').click(); true");
 		chrome.await("location.pathname === '/home' && document.readyState === 'complete'");
 		assertThat(chrome.evaluate("document.querySelector('.brand').textContent").asText()).isEqualTo("Prime Root");
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "KEYCLOAK_THEME_VISUAL_TEST_URL", matches = ".+")
+	void keycloakBrandIsReadableAndNetworkTaglineAlignsWithLoginFields() throws Exception {
+		var url = System.getenv("KEYCLOAK_THEME_VISUAL_TEST_URL");
+		assertThat(URI.create(url).getHost()).isIn("localhost", "127.0.0.1");
+		try (var chrome = new Chrome()) {
+			chrome.command("Page.navigate", Map.of("url", url));
+			chrome.await("document.querySelector('#kc-form-login') !== null && document.readyState === 'complete'");
+			assertThat(chrome.evaluate("document.querySelector('#prime-root-heading').innerText").asText())
+				.contains("Fresh produce.", "Great connections.").doesNotContain("Good produce.");
+			for (var width : new int[] {1440, 2000}) {
+				chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+					"width", width, "height", 1000, "deviceScaleFactor", 1, "mobile", false));
+				assertThat(chrome.evaluate("""
+					(() => {
+					  const luminance = color => color.match(/[\\d.]+/g).slice(0, 3)
+					    .map(value => Number(value) / 255)
+					    .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4)
+					    .reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+					  const brand = luminance(getComputedStyle(document.querySelector('#kc-header-wrapper')).color);
+					  const background = luminance(getComputedStyle(document.body).backgroundColor);
+					  return (Math.max(brand, background) + .05) / (Math.min(brand, background) + .05);
+					})()
+					""").asDouble()).as("Brand text contrast at %s px", width).isGreaterThanOrEqualTo(4.5);
+				assertThat(chrome.evaluate("""
+					(() => {
+					  const text = document.createRange();
+					  text.selectNodeContents(document.querySelector('.prime-root-tagline'));
+					  return Math.abs(text.getBoundingClientRect().left -
+					    document.querySelector('#username').getBoundingClientRect().left);
+					})()
+					""").asDouble()).as("Tagline alignment at %s px", width).isLessThanOrEqualTo(2);
+			}
+			assertThat(chrome.evaluate("document.querySelector('.prime-root-illustration img').alt").asText())
+				.contains("red bulb onions, tomatoes and capsicum");
+			chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+				"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+			assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
+		}
+	}
+
+	@Test
+	@EnabledIfEnvironmentVariable(named = "KEYCLOAK_THEME_TEST_URL", matches = ".+")
+	void keycloakThemeRetainsNativeCredentialsErrorsRecoveryAndAuthenticatorSetup() throws Exception {
+		var url = System.getenv("KEYCLOAK_THEME_TEST_URL");
+		var uri = URI.create(url);
+		assertThat(uri.getHost()).isIn("localhost", "127.0.0.1");
+		assertThat(uri.getPath()).isEqualTo("/realms/prime-root-theme-test/protocol/openid-connect/auth");
+		try (var chrome = new Chrome()) {
+			chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+				"width", 1440, "height", 1000, "deviceScaleFactor", 1, "mobile", false));
+			chrome.command("Page.navigate", Map.of("url", url));
+			chrome.await("document.querySelector('#kc-form-login') !== null && document.readyState === 'complete'");
+			assertThat(chrome.evaluate("document.title").asText()).contains("Prime Root");
+			assertThat(chrome.evaluate("document.querySelector('#kc-header-wrapper').textContent").asText()).isEqualTo("Prime Root");
+			assertThat(chrome.evaluate("document.querySelector('.prime-root-story').innerText").asText())
+				.contains("Fresh produce.", "Great connections.", "YOUR FRESH PRODUCE DISTRIBUTION NETWORK");
+			assertThat(chrome.evaluate("document.querySelector('.prime-root-illustration img').alt").asText())
+				.contains("onions, tomatoes and capsicum", "network connections");
+			assertThat(chrome.evaluate("[...document.images].every(image => image.complete && image.naturalWidth > 0)").asBoolean()).isTrue();
+			assertThat(chrome.evaluate("getComputedStyle(document.querySelector('#kc-login')).backgroundColor").asText())
+				.isEqualTo("rgb(23, 103, 69)");
+			assertThat(chrome.evaluate("""
+				document.querySelector('.prime-root-story').getBoundingClientRect().right <
+				document.querySelector('#kc-form-login').getBoundingClientRect().left
+				""").asBoolean()).withFailMessage("Desktop theme layout: %s", chrome.evaluate("""
+				JSON.stringify({width: innerWidth, story: document.querySelector('.prime-root-story').getBoundingClientRect(),
+				form: document.querySelector('#kc-form-login').getBoundingClientRect(),
+				mainDisplay: getComputedStyle(document.querySelector('main')).display,
+				footerDisplay: getComputedStyle(document.querySelector('main > div:last-child')).display})
+				""").asText()).isTrue();
+			chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+				"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+			assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
+			chrome.evaluate("""
+				document.querySelector('#username').value = 'theme-fixture';
+				document.querySelector('#password').value = 'deliberately-invalid-password';
+				document.querySelector('#kc-form-login').requestSubmit(); true
+				""");
+			chrome.await("document.body !== null && document.body.innerText.includes('Invalid username or password')");
+			assertThat(chrome.evaluate("document.querySelector('.prime-root-story') !== null").asBoolean()).isTrue();
+			chrome.evaluate("document.querySelector('a[href*=\"reset-credentials\"]').click(); true");
+			chrome.await("document.querySelector('#kc-reset-password-form') !== null && document.readyState === 'complete'");
+			assertThat(chrome.evaluate("document.querySelector('.prime-root-story') !== null").asBoolean()).isTrue();
+			assertThat(chrome.evaluate("document.querySelector('#username') !== null").asBoolean()).isTrue();
+			chrome.command("Page.navigate", Map.of("url", url));
+			chrome.await("document.querySelector('#kc-form-login') !== null && document.readyState === 'complete'");
+			var password = System.getenv("KEYCLOAK_THEME_TEST_PASSWORD");
+			assertThat(password).as("Password for the isolated theme-fixture test account").isNotBlank();
+			chrome.evaluate("document.querySelector('#username').value = 'theme-fixture';"
+				+ "document.querySelector('#password').value = " + json.writeValueAsString(password) + ";"
+				+ "document.querySelector('#kc-form-login').requestSubmit(); true");
+			chrome.await("document.querySelector('#totp') !== null && document.readyState === 'complete'");
+			assertThat(chrome.evaluate("document.querySelector('.prime-root-story') !== null").asBoolean()).isTrue();
+			assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
+		}
 	}
 
 	private void verifyInventoryWorkspace(Chrome chrome, String branchId, String productId) throws Exception {

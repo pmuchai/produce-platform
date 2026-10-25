@@ -173,9 +173,13 @@ Remove-Item Env:BOOTSTRAP_ADMIN_FULL_NAME
 
 Check `http://localhost:8080/actuator/health`; it should return `{"status":"UP"}`.
 This checks infrastructure, including the database, not staff permission
-configuration. Open `http://localhost:8080/` in a browser to see the green
-Prime Root sign-in page and its locally bundled produce-distribution artwork.
-Select **Sign in securely**, sign in at Keycloak, and verify that `/home` displays your welcome
+configuration. Install and activate the Prime Root Keycloak theme below, then
+open `http://localhost:8080/` in a browser. It starts Keycloak sign-in directly,
+with credentials entered inside the green Prime Root design and its local
+produce-distribution artwork featuring red bulb onions, tomatoes and capsicum. The
+headline is **YOUR FRESH PRODUCE DISTRIBUTION NETWORK**, with growers, deliveries
+and branches presented as one connected network. There is no intermediate application landing page.
+Sign in and verify that `/home` displays your welcome
 dashboard. `/api/auth/me` still exposes your local staff profile and the expected
 effective permission codes. No password is
 submitted to this application.
@@ -188,6 +192,42 @@ Remove-Item Env:KEYCLOAK_CLIENT_SECRET
 Remove-Variable dbCredential, clientCredential
 ```
 
+### Prime Root Keycloak login theme
+
+The custom login theme lives in `keycloak\themes\prime-root` and is validated
+against **Keycloak 26.8.1**. Install it into the Keycloak distribution:
+
+```powershell
+.\keycloak\Install-PrimeRootTheme.ps1 -KeycloakHome "C:\tools\keycloak-26.8.1"
+```
+
+The installer copies the theme and the original logo/produce artwork from the
+application's canonical assets; no external image or font service is used.
+It changes files only inside `themes\prime-root`; it does not authenticate to
+Keycloak, change the realm/client, or modify the database.
+
+In the Keycloak Admin Console select the `produce-platform` realm, then
+**Realm settings > Themes > Login theme > prime-root**, and save. If the
+`produce-platform` client's advanced settings specify a **Login theme**
+override, select `prime-root` there as well (or remove the override to inherit
+the realm theme). Start a fresh sign-in to verify the selection.
+The application JAR alone cannot activate an identity-provider theme.
+
+The theme extends `keycloak.v2` and overrides only the supported footer hook,
+branding messages, and CSS. Keycloak retains its native credential forms,
+error messages, password visibility, recovery, session handling, MFA setup and
+challenge screens. No credential-handling JavaScript, copied authentication
+templates, application password form, or login iframe is introduced.
+Revalidate these flows when upgrading Keycloak, particularly if its layout
+classes change. Production theme caching should stay enabled. While editing
+the theme in development, the Keycloak options
+`--spi-theme--static-max-age=-1 --spi-theme--cache-themes=false --spi-theme--cache-templates=false`
+allow changes to be reloaded without stale templates/styles.
+
+OIDC still redirects to the Keycloak origin: matching visuals do not hide
+that security boundary or change callback/logout URIs. A shared-domain reverse
+proxy is a separate deployment concern.
+
 ## API and session workflow
 
 Spring Security performs OIDC discovery, code exchange, PKCE S256, signature,
@@ -198,13 +238,13 @@ to the identity provider.
 
 | Method | Endpoint | Result |
 | --- | --- | --- |
-| GET | `/`, `/login` | Public Prime Root sign-in page; authenticated staff redirect to `/home` |
+| GET | `/`, `/login` | Start Keycloak sign-in directly; authenticated staff redirect to `/home` |
 | GET | `/oauth2/authorization/keycloak` | Initiate browser login |
 | GET | `/login/oauth2/code/keycloak` | Provider callback; redirects to `/home` after approval |
 | GET | `/home` | Welcome dashboard with permission- and scope-filtered summaries |
 | GET | `/api/auth/csrf` | Public CSRF token, header name and parameter name |
 | GET | `/api/auth/me` | Current local `staff` profile and effective `permissions` |
-| POST | `/api/auth/logout` | CSRF-protected local logout; redirects through Keycloak logout to the Prime Root sign-in page at `/` |
+| POST | `/api/auth/logout` | CSRF-protected local logout; redirects through Keycloak logout to `/`, which starts a fresh branded Keycloak login |
 | GET | `/api/permissions` | Authenticated capability catalogue, not local role management |
 | GET | `/api/branches` | Branches visible to the current staff member |
 | GET | `/api/branches/{id}` | Branch within scope |
@@ -215,13 +255,11 @@ to the identity provider.
 | PUT | `/api/users/{id}` | `USER_MANAGE` and global scope; requires the current `If-Match` ETag |
 | GET | `/api/audit-events` | `AUDIT_VIEW` and global scope; latest 100 events |
 
-Anonymous visits to `/home` or `/ui/**`, and expired workspace sessions, return
-to `/login`. APIs continue to return 401 instead of a login-page redirect.
-The public page, logo and original produce illustration are served locally,
-without third-party image/font services. The sign-in button starts the existing
-Keycloak Authorization Code + PKCE flow; the application never collects passwords.
-The Keycloak-hosted credential screen remains controlled by Keycloak's realm
-theme. UI branding is **Prime Root**; existing technical application, realm and
+Anonymous visits to `/home` or `/ui/**`, and expired workspace sessions, initiate
+Keycloak login directly. APIs continue to return 401 instead of a login-page
+redirect. The Keycloak theme provides the complete branded sign-in screen;
+the application never collects passwords. Authorization Code + PKCE remains
+unchanged. UI branding is **Prime Root**; existing technical application, realm and
 client identifiers remain unchanged.
 
 The left sidebar uses expandable parent sections. Click a parent (or use
@@ -565,9 +603,8 @@ For logout, submit a POST form to `/api/auth/logout` with a hidden field named
 by `csrf.parameterName` and containing `csrf.token`. Browser navigation follows
 the provider logout redirect; an AJAX request is not a replacement for that
 navigation. The existing exact post-logout URI `http://localhost:8080/` remains
-valid: its redirect displays the Prime Root sign-in page after Keycloak has
-ended the SSO session. Selecting **Sign in securely** starts a fresh
-Authorization Code + PKCE sign-in.
+valid: after Keycloak has ended the SSO session, its redirect to `/` starts
+a fresh Authorization Code + PKCE sign-in with the branded Keycloak screen.
 
 Errors use `application/problem+json`: 400 invalid input, 401 absent/expired/
 revoked authentication, 403 insufficient access or invalid/missing CSRF,
@@ -675,6 +712,36 @@ protocol; no Selenium driver or browser download is required. Point
 
 The browser test is skipped when that property is absent, keeping the normal
 test suite usable on machines without a browser.
+
+A second opt-in browser check verifies the actual Keycloak theme, including
+native username/password controls, invalid-credential feedback, password
+recovery, authenticator setup, local artwork and mobile layout. Use an isolated
+Keycloak realm named `prime-root-theme-test` with `loginTheme=prime-root`,
+password reset enabled and a `theme-fixture` user whose required actions include
+`CONFIGURE_TOTP`. Do not use a production realm or real staff credentials.
+Set `KEYCLOAK_THEME_TEST_URL` to that local realm's valid OIDC authorization URL
+(including the test client's redirect URI and PKCE parameters), and
+`KEYCLOAK_THEME_TEST_PASSWORD` to the fixture account's password. Then run:
+
+```powershell
+.\mvnw.cmd "-Dtest=CatalogueBrowserTests#keycloakThemeRetainsNativeCredentialsErrorsRecoveryAndAuthenticatorSetup" "-Dui.browser=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" test
+```
+
+The theme check requires a loopback host and the exact isolated realm name.
+It is skipped unless `KEYCLOAK_THEME_TEST_URL` is set; ordinary application
+tests continue using the local OIDC fixture, without a Keycloak installation.
+
+For a read-only appearance check against a running local Keycloak login page,
+set `KEYCLOAK_THEME_VISUAL_TEST_URL` to its valid OIDC authorization URL, then run:
+
+```powershell
+.\mvnw.cmd "-Dtest=CatalogueBrowserTests#keycloakBrandIsReadableAndNetworkTaglineAlignsWithLoginFields" "-Dui.browser=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" test
+```
+
+This check requires a loopback host and never submits credentials. It verifies
+the fresh-produce headline, brand text contrast, tagline alignment with the
+login fields at desktop widths, red bulb onion artwork description and mobile
+overflow.
 
 H2 runs in PostgreSQL compatibility mode; it is not a replacement for checking
 actual PostgreSQL startup and migrations. H2, test configuration and the OIDC

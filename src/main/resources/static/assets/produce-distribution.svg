@@ -2,9 +2,16 @@
   <defs>
     <linearGradient id="field" x1="180" y1="80" x2="500" y2="470" gradientUnits="userSpaceOnUse"><stop stop-color="#e3edca"/><stop offset="1" stop-color="#c4dfbb"/></linearGradient>
     <linearGradient id="tomato" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#ee8966"/><stop offset="1" stop-color="#cf5945"/></linearGradient>
+    <radialGradient id="red-onion" cx=".35" cy=".3" r=".8"><stop stop-color="#d989a3"/><stop offset=".55" stop-color="#b34d76"/><stop offset="1" stop-color="#7c2e56"/></radialGradient>
   </defs>
   <path d="M85 241C55 134 160 60 289 75c102-60 241-22 277 61 98 35 118 138 55 212-30 110-177 143-291 113C192 493 72 410 85 241Z" fill="url(#field)"/>
   <circle cx="552" cy="87" r="29" fill="#f1d78d"/>
+  <g stroke="#86aa79" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="5 9">
+    <path d="m306 157 100-65 126 33m-126-33 126 186M306 157l-11 114 237 7m-237-7-38 153"/>
+  </g>
+  <g fill="#f8fbef" stroke="#6d9b70" stroke-width="3">
+    <circle cx="406" cy="92" r="8"/><circle cx="532" cy="125" r="8"/><circle cx="295" cy="271" r="8"/>
+  </g>
   <g stroke="#a7c595" stroke-width="3">
     <path d="M97 202c77-48 158-49 243-10M104 219c78-44 151-44 225-10M117 237c72-35 135-36 200-9"/>
     <path d="m164 162 11 69m35-82 5 71m40-71-5 67m42-57-11 67"/>
@@ -29,9 +36,11 @@
   <g stroke="#f8fbef" stroke-width="3"><circle cx="306" cy="157" r="4"/><circle cx="532" cy="278" r="4"/><circle cx="257" cy="424" r="4"/></g>
   <ellipse cx="323" cy="449" rx="235" ry="23" fill="#98b993" opacity=".35"/>
   <g>
-    <path d="M120 305c-16-35-29-57-18-73 15-10 37 9 45 31-9-40-1-63 16-62 20 4 24 30 23 55 15-28 32-41 47-29 11 14-7 42-29 63l-23 43-61-28Z" fill="#357c53"/>
-    <path d="M136 316c-25-24-30-52-17-61 16-5 32 14 39 32-2-33 10-56 26-50 14 10 7 35-1 58 23-19 46-19 49-4 0 18-23 31-46 35l-50-10Z" fill="#78a951"/>
-    <path d="m148 321 11-58m14 65 17-61" stroke="#d1e5ad" stroke-width="3" stroke-linecap="round"/>
+    <path d="M112 260c-13-11-26 1-23 21l6 31c2 14 14 22 23 14 11 8 23-1 25-15l5-29c3-21-11-32-23-22-4-5-9-5-13 0Z" fill="#4c9252"/>
+    <path d="M153 239c-13-11-27 1-24 23l6 43c2 16 14 23 25 15 12 8 25-1 26-17l5-41c3-22-11-34-25-23-4-5-9-5-13 0Z" fill="#efc45d"/>
+    <path d="M198 262c-12-11-26 1-23 21l5 29c2 15 14 22 24 14 11 8 23-1 25-16l5-27c3-21-11-32-23-21-4-5-9-5-13 0Z" fill="#db6c4c"/>
+    <path d="M117 260c-2-10 1-17 7-22m36 1c-2-10 1-17 7-22m37 45c-2-10 1-17 7-22" stroke="#357653" stroke-width="6" stroke-linecap="round"/>
+    <path d="M110 273c-2 14 0 28 6 38m36-59c-3 18-1 37 5 51m40-27c-2 12 0 24 5 34" stroke="#fff1b6" stroke-width="3" stroke-linecap="round" opacity=".5"/>
     <path d="M96 309h140l-13 106H109L96 309Z" fill="#e5bd7b"/>
     <path d="M96 316h140M103 349h130m-126 32h121m-98-56 7 77m38-77v77m37-77-6 77" stroke="#b88c52" stroke-width="7"/>
     <path d="M105 316h122" stroke="#f5dbab" stroke-width="6"/>
@@ -46,13 +55,16 @@
     <path d="M187 384h126" stroke="#fff0cb" stroke-width="5"/>
   </g>
   <g>
-    <path d="M355 389c-3-15 12-20 17-37 3 18 20 23 18 38-2 18-33 18-35-1Z" fill="#ebc57e"/>
-    <path d="M395 386c-2-18 14-22 18-41 4 19 20 23 19 40-1 21-35 22-37 1Z" fill="#dba568"/>
-    <path d="M432 394c-3-17 12-24 18-41 2 18 20 24 18 41-2 19-34 19-36 0Z" fill="#f4d89b"/>
-    <path d="M346 403c-2-17 11-25 16-41 4 17 20 25 18 41-3 20-33 20-34 0Z" fill="#f4d89b"/>
-    <path d="M383 407c-3-18 13-24 18-41 2 18 21 23 19 41-3 20-35 20-37 0Z" fill="#edcb8a"/>
-    <path d="M424 411c-2-18 13-23 18-39 3 17 20 23 18 39-2 20-34 20-36 0Z" fill="#dba568"/>
-    <path d="m372 357-3 33m43-38-2 34m39-27-2 35m-85-26-2 36m41-31-2 34m43-28-1 32" stroke="#bc8b51" stroke-width="2" stroke-linecap="round"/>
+    <g fill="url(#red-onion)">
+      <path d="M368 355c0 10-16 13-18 29-3 16 7 25 22 25 16 0 26-9 22-25-3-16-17-19-17-29h-9Z"/>
+      <path d="M407 349c0 10-17 14-19 30-3 16 8 26 24 26s27-10 23-26c-3-16-18-20-18-30h-10Z"/>
+      <path d="M445 357c0 10-15 14-18 29-3 16 7 25 23 25 15 0 25-9 22-25-3-15-17-19-17-29h-10Z"/>
+      <path d="M357 373c0 10-16 13-19 29-3 16 8 26 23 26 16 0 27-10 23-26-3-16-17-19-17-29h-10Z"/>
+      <path d="M395 378c0 10-17 14-19 30-3 16 8 26 24 26s27-10 23-26c-3-16-18-20-18-30h-10Z"/>
+      <path d="M437 382c0 10-16 13-18 28-3 16 7 26 23 26s26-10 23-26c-3-15-17-18-17-28h-11Z"/>
+    </g>
+    <path d="m369 356-2-8m8 8 3-8m31 2-2-8m8 8 3-8m29 16-2-8m8 8 3-8m-97 24-2-7m8 7 3-7m31 12-2-7m9 7 3-7m32 12-2-7m8 7 3-7" stroke="#a7786d" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M366 369c-11 12-10 23-2 30m44-34c-11 12-11 23-3 30m41-23c-10 12-10 23-2 30m-88-15c-11 12-10 22-2 30m41-24c-10 11-10 22-2 30m43-26c-10 11-10 22-2 30" stroke="#ecacc2" stroke-width="2" stroke-linecap="round" opacity=".7"/>
     <path d="M331 414h148l-12 49H343l-12-49Z" fill="#85a16a"/>
     <path d="M332 419h145m-139 22h133m-115-19 5 33m30-33v33m32-33-2 33m30-33-5 33" stroke="#56774c" stroke-width="6"/>
   </g>

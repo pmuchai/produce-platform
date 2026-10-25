@@ -67,7 +67,7 @@ public class SecurityConfiguration {
 			.exceptionHandling(exceptions -> exceptions
 				.authenticationEntryPoint((request, response, exception) -> {
 					if ("/home".equals(request.getServletPath()) || request.getServletPath().startsWith("/ui/")) {
-						response.sendRedirect(request.getContextPath() + "/login");
+						response.sendRedirect(request.getContextPath() + "/oauth2/authorization/keycloak");
 					}
 					else {
 						errors.write(request, response, HttpStatus.UNAUTHORIZED, "Sign in through Keycloak");
