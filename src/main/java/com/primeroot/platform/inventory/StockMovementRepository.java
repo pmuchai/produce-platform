@@ -7,10 +7,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface StockMovementRepository extends JpaRepository<StockMovement, UUID> {
 	List<StockMovement> findByOperationIdOrderById(UUID operationId);
 	boolean existsByReversalOfId(UUID id);
+
+	@Query("select m.reversalOf.id from StockMovement m where m.reversalOf.id in :ids")
+	List<UUID> reversedMovementIds(@Param("ids") List<UUID> ids);
 
 	@Query("""
 		select m from StockMovement m where m.operation.branch.id in :branches

@@ -14,6 +14,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.primeroot.platform.access.AccessService;
@@ -237,7 +238,7 @@ public class InventoryService {
 				product.getName(), product.getBaseUnit().getCode(), product.isActive())).toList(),
 			units.findAllByOrderByCode().stream().filter(UnitOfMeasure::isActive)
 				.map(unit -> new UnitOption(unit.getId(), unit.getCode())).toList(),
-			batchResponses, balances, history.stream().map(this::movementResponse).toList(), history.getTotalElements(), page,
+			batchResponses, balances, movementResponses(history.getContent()), history.getTotalElements(), page,
 			balances.stream().filter(Balance::lowStock).count(), batchResponses.stream().filter(BatchResponse::nearExpiry).count());
 	}
 
@@ -270,11 +271,13 @@ public class InventoryService {
 	}
 
 	private OperationResponse response(UUID id) {
-		return new OperationResponse(id, movements.findByOperationIdOrderById(id).stream().map(this::movementResponse).toList());
+		return new OperationResponse(id, movementResponses(movements.findByOperationIdOrderById(id)));
 	}
 
-	private MovementResponse movementResponse(StockMovement movement) {
-		return MovementResponse.from(movement, movements.existsByReversalOfId(movement.getId()));
+	private List<MovementResponse> movementResponses(List<StockMovement> items) {
+		var ids = items.stream().map(StockMovement::getId).toList();
+		var reversedIds = ids.isEmpty() ? Set.<UUID>of() : Set.copyOf(movements.reversedMovementIds(ids));
+		return items.stream().map(movement -> MovementResponse.from(movement, reversedIds.contains(movement.getId()))).toList();
 	}
 
 	private void record(StockOperation operation) {
