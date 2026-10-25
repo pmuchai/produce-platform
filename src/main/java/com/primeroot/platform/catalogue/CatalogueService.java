@@ -132,8 +132,7 @@ public class CatalogueService {
 		if (id != null && !item.getBaseUnit().getId().equals(unit.getId())) {
 			throw conflict("A product's base stock unit is immutable; create a new product instead");
 		}
-		if (request.active() && id != null && packaging.findAllByOrderByProductCodeAscUnitCodeAsc().stream()
-				.anyMatch(pack -> pack.getProduct().getId().equals(id) && !pack.getUnit().isActive())) {
+		if (request.active() && id != null && packaging.existsByProductIdAndUnitActiveFalse(id)) {
 			throw conflict("Reactivate the product's packaging units before activating the product");
 		}
 		item.update(request.code(), request.name(), request.active());

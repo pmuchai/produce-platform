@@ -9,4 +9,5 @@ public interface PackagingRepository extends JpaRepository<ProductPackaging, UUI
 	List<ProductPackaging> findAllByOrderByProductCodeAscUnitCodeAsc();
 	Optional<ProductPackaging> findByProductIdAndUnitId(UUID productId, UUID unitId);
 	boolean existsByUnitIdAndProductActiveTrue(UUID id);
+	boolean existsByProductIdAndUnitActiveFalse(UUID id);
 }
