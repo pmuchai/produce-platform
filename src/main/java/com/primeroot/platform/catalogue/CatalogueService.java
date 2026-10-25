@@ -62,7 +62,7 @@ public class CatalogueService {
 	@Transactional
 	public TypeResponse saveType(UUID id, TypeRequest request) {
 		var actor = access.requireGlobalPermission(Permission.CATALOGUE_MANAGE);
-		var item = id == null ? new ProduceType() : find(types, id);
+		var item = id == null ? new ProduceType() : findForUpdate(types, id);
 		if (id != null && !request.active() && (classifications.existsByProduceTypeIdAndActiveTrue(id)
 				|| products.existsByProduceTypeIdAndActiveTrue(id))) {
 			throw conflict("Deactivate dependent varieties, grades and products first");
@@ -76,9 +76,9 @@ public class CatalogueService {
 	@Transactional
 	public ClassificationResponse saveClassification(UUID id, ClassificationRequest request) {
 		var actor = access.requireGlobalPermission(Permission.CATALOGUE_MANAGE);
-		var type = find(types, request.produceTypeId());
+		var type = findForUpdate(types, request.produceTypeId());
 		requireActive(request.active(), type);
-		var item = id == null ? new ProductClassification() : find(classifications, id);
+		var item = id == null ? new ProductClassification() : findForUpdate(classifications, id);
 		if (id != null && products.existsByVarietyIdOrGradeId(id, id)
 				&& (item.getKind() != request.kind() || !item.getProduceType().getId().equals(type.getId()))) {
 			throw conflict("A classification used by products cannot change kind or produce type");
@@ -101,7 +101,7 @@ public class CatalogueService {
 				? request.baseFactor() != null : request.baseFactor() == null) {
 			throw badRequest("Mass/count units require a positive base factor; packaging units must not have one");
 		}
-		var item = id == null ? new UnitOfMeasure() : find(units, id);
+		var item = id == null ? new UnitOfMeasure() : findForUpdate(units, id);
 		if (id != null && (item.getDimension() != request.dimension()
 				|| !equal(item.getBaseFactor(), request.baseFactor()))) {
 			throw conflict("Unit dimensions and factors are immutable; create a new unit instead");
@@ -120,15 +120,15 @@ public class CatalogueService {
 	@Transactional
 	public ProductResponse saveProduct(UUID id, ProductRequest request) {
 		var actor = access.requireGlobalPermission(Permission.CATALOGUE_MANAGE);
-		var type = find(types, request.produceTypeId());
-		var unit = find(units, request.baseUnitId());
+		var type = findForUpdate(types, request.produceTypeId());
+		var variety = classification(request.varietyId(), type, ProductClassification.Kind.VARIETY);
+		var grade = classification(request.gradeId(), type, ProductClassification.Kind.GRADE);
+		var item = id == null ? new Product() : findForUpdate(products, id);
+		var unit = findForUpdate(units, request.baseUnitId());
 		if (unit.getDimension() == UnitOfMeasure.Dimension.PACKAGING) {
 			throw badRequest("A product's base stock unit must measure mass or count, not variable packaging");
 		}
-		var variety = classification(request.varietyId(), type, ProductClassification.Kind.VARIETY);
-		var grade = classification(request.gradeId(), type, ProductClassification.Kind.GRADE);
 		requireActive(request.active(), type, unit, variety, grade);
-		var item = id == null ? new Product() : find(products, id);
 		if (id != null && !item.getBaseUnit().getId().equals(unit.getId())) {
 			throw conflict("A product's base stock unit is immutable; create a new product instead");
 		}
@@ -146,8 +146,8 @@ public class CatalogueService {
 	@Transactional
 	public PackagingResponse savePackaging(PackagingRequest request) {
 		var actor = access.requireGlobalPermission(Permission.CATALOGUE_MANAGE);
-		var product = find(products, request.productId());
-		var unit = find(units, request.unitId());
+		var product = findForUpdate(products, request.productId());
+		var unit = findForUpdate(units, request.unitId());
 		requireActive(true, product, unit);
 		if (unit.getDimension() != UnitOfMeasure.Dimension.PACKAGING) {
 			throw badRequest("Only packaging units can have a product-specific conversion");
@@ -187,7 +187,7 @@ public class CatalogueService {
 		if (id == null) {
 			return null;
 		}
-		var item = find(classifications, id);
+		var item = findForUpdate(classifications, id);
 		if (item.getKind() != kind || !item.getProduceType().getId().equals(type.getId())) {
 			throw badRequest("Variety and grade must have the correct kind and belong to the selected produce type");
 		}
@@ -196,6 +196,26 @@ public class CatalogueService {
 
 	private static <T> T find(JpaRepository<T, UUID> repository, UUID id) {
 		return repository.findById(id)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Catalogue record not found"));
+	}
+
+	private ProduceType findForUpdate(ProduceTypeRepository repository, UUID id) {
+		return repository.findByIdForUpdate(id)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Catalogue record not found"));
+	}
+
+	private ProductClassification findForUpdate(ClassificationRepository repository, UUID id) {
+		return repository.findByIdForUpdate(id)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Catalogue record not found"));
+	}
+
+	private UnitOfMeasure findForUpdate(UnitRepository repository, UUID id) {
+		return repository.findByIdForUpdate(id)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Catalogue record not found"));
+	}
+
+	private Product findForUpdate(ProductRepository repository, UUID id) {
+		return repository.findByIdForUpdate(id)
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Catalogue record not found"));
 	}
 
