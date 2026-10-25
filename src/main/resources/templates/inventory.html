@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head(${inventoryTitle})}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header(${inventoryTitle}, ${navGroup == 'reports' ? 'Read-only inventory reporting within your branch scope' : 'Branch inventory, traceable batches and stock controls'})}"></header>
+  <div th:replace="~{layout :: notice}"></div>
+  <p th:if="${page == 'stock'}" class="hint">Record spoilage, post stock corrections or reverse an eligible movement below.
+    Receipts are posted through Stock / Receive stock. Read-only stock and movement reports are under Reports.
+    Inter-branch transfers are not available yet.</p>
+  <th:block th:if="${page != 'receipts'}"><form th:replace="~{layout :: dates(@{${inventoryPath}})}"></form></th:block>
+  <form method="get" class="date-filter panel" th:action="@{${inventoryPath}}">
+    <input type="hidden" name="start" th:value="${period.start}"><input type="hidden" name="end" th:value="${period.end}">
+    <label>Branch<select name="branchId"><option value="">All permitted branches</option>
+      <option th:each="branch : ${inventory.branches}" th:value="${branch.id}" th:text="${branch.name}" th:selected="${branch.id == selectedBranch}"></option></select></label>
+    <button type="submit">Filter branch</button>
+  </form>
+  <section th:if="${page == 'receipts' and receiveStock}" class="panel">
+    <h2>Receive stock</h2>
+    <p class="hint">Posting immediately creates stock. Use one receipt for up to 50 product lines.
+      For variable-weight packages, enter their actual total measured quantity in the product's base unit.
+      Leave it blank only when using a defined fixed packaging conversion.
+      Enter purchase cost per delivered unit, not per base unit unless those units are the same.
+      Batch totals are calculated on posting, rounded half up to the currency's standard decimal places.</p>
+    <form data-stock="receipts" class="editor" id="stock-receipt">
+      <label>Destination branch<select name="branchId" required><option value="">Choose branch</option>
+        <option th:each="branch : ${inventory.branches}" th:if="${branch.active}" th:value="${branch.id}" th:text="${branch.name}"></option></select></label>
+      <label>Received date (UTC)<input name="receivedDate" type="date" required min="1970-01-01" th:max="${today}" th:value="${today}"></label>
+      <label>Source / delivery reference<input name="source" required maxlength="120"></label>
+      <label>Currency<input name="currency" required readonly th:value="${inventory.currency}"></label>
+      <label>Notes<input name="notes" maxlength="500"></label>
+      <div id="receipt-lines" class="full-width">
+        <fieldset class="receipt-line editor">
+          <legend>Product / batch</legend>
+          <label>Product<select name="productId" required><option value="">Choose product</option>
+            <option th:each="product : ${inventory.products}" th:if="${product.active}" th:value="${product.id}" th:text="${product.name} + ' (' + ${product.baseUnit} + ')'"></option></select></label>
+          <label>Delivered unit<select name="unitId" required><option value="">Choose unit</option>
+            <option th:each="unit : ${inventory.units}" th:value="${unit.id}" th:text="${unit.code}"></option></select></label>
+          <label>Delivered quantity<input name="quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
+          <label>Purchase cost per delivered unit<input name="purchaseUnitCost" type="number" min="0" max="9999999999999.999999" step="0.000001" required></label>
+          <label>Actual measured total (base unit, optional)<input name="measuredBaseQuantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001"></label>
+          <label>Lot / batch reference<input name="lotCode" required maxlength="64"></label>
+          <label>Expiry / best-before (optional)<input name="expiryDate" type="date" max="9999-12-31"></label>
+          <button type="button" data-remove-line class="secondary">Remove line</button>
+        </fieldset>
+      </div>
+      <div class="form-actions"><button type="button" id="add-receipt-line" class="secondary">Add product line</button></div>
+      <div class="form-actions"><button type="submit">Post receipt</button><button type="reset" class="secondary">Clear</button><span class="form-message" role="status" aria-live="polite"></span></div>
+    </form>
+  </section>
+  <p th:if="${page == 'receipts' and !receiveStock}" class="panel">You can view inventory, but do not have permission to receive stock.</p>
+  <section th:if="${page == 'stock-report'}" class="panel"><h2>Stock balances, receipts and spoilage</h2><div th:replace="~{stock-summary :: balances}"></div></section>
+  <section th:if="${page == 'receipts' or page == 'stock'}" class="panel"><h2>Current on-hand stock</h2><div th:replace="~{stock-summary :: currentBalances}"></div></section>
+  <section th:if="${page == 'stock'}" class="panel"><h2>Find a batch</h2>
+    <p class="hint">Search or change batch pages to choose batches in the spoilage and correction forms below.</p>
+    <div th:replace="~{batch-controls :: filters}"></div>
+  </section>
+  <section th:if="${page == 'receipts' or page == 'stock-report'}" id="stock-batches" class="panel"><h2>Current batches / expiry alerts</h2>
+    <p class="hint" th:text="${inventory.nearExpiryCount} + ' batches have stock that is expired or due within seven days. These are current alerts, not historical alerts for the date filter.'"></p>
+    <p class="hint">Original receipt cost is delivered quantity times purchase cost per delivered unit. It does not change with stock losses or corrections and is not remaining-stock valuation.
+      Costs exclude separately allocated freight/taxes. Base-unit cost is the original rounded batch total divided by received base quantity, rounded to 12 decimal places.</p>
+    <div th:replace="~{batch-controls :: filters}"></div>
+    <div class="table-scroll"><table><thead><tr><th>Branch / product</th><th>Lot / received / expiry</th><th>Current base quantity</th><th>Receipt / conversion snapshot</th><th>Original receipt cost</th></tr></thead>
+      <tbody><tr th:each="batch : ${batchPage.batches}">
+        <td><strong th:text="${batch.product}"></strong><small th:text="${batch.branch}"></small></td>
+        <td><span th:text="${batch.lotCode}"></span><small th:text="'Received ' + ${batch.receivedDate}"></small>
+          <small th:text="${batch.expiryDate == null ? 'No expiry recorded' : 'Expiry / best-before ' + batch.expiryDate}"></small>
+          <strong th:if="${batch.nearExpiry}" class="warning">Expired or due within seven days</strong></td>
+        <td th:text="${batch.quantity} + ' ' + ${batch.baseUnit}"></td>
+        <td><span th:text="${batch.inputQuantity} + ' ' + ${batch.inputUnit} + ' = ' + ${batch.receivedQuantity} + ' ' + ${batch.baseUnit}"></span>
+          <small th:text="${batch.measured ? 'Actual measured quantity' : 'Saved factor: ' + batch.conversionNumerator + ' / ' + batch.conversionDenominator}"></small>
+          <small th:text="${batch.source}"></small></td>
+        <td><span th:if="${batch.currency == null}">Cost unknown</span>
+          <th:block th:if="${batch.currency != null}">
+            <strong th:text="${batch.currency} + ' ' + ${batch.receivedCost}"></strong>
+            <small th:text="${batch.currency} + ' ' + ${batch.purchaseUnitCost} + ' / ' + ${batch.inputUnit}"></small>
+            <small th:text="${batch.currency} + ' ' + ${batch.baseUnitCost} + ' / ' + ${batch.baseUnit} + ' (derived)'"></small>
+          </th:block></td>
+      </tr><tr th:if="${batchPage.batches.isEmpty()}"><td colspan="5">No batches match this search in the selected branch scope.</td></tr></tbody>
+    </table></div>
+  </section>
+  <section th:if="${page == 'stock' and spoilStock}" class="panel"><h2>Record spoilage</h2>
+    <form data-stock="spoilage" class="editor">
+      <input name="branchId" type="hidden">
+      <label>Batch<select name="batchId" data-batch-branch required><option value="">Choose batch</option>
+        <option th:each="batch : ${batchPage.batches}" th:if="${batch.quantity.signum() > 0}" th:value="${batch.id}" th:attr="data-branch=${batch.branchId}" th:text="${batch.branch} + ' / ' + ${batch.product} + ' / ' + ${batch.lotCode} + ' (' + ${batch.quantity} + ' ' + ${batch.baseUnit} + ')'"></option></select></label>
+      <label>Quantity lost (base unit)<input name="quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
+      <label>Reason<input name="reason" required maxlength="500"></label>
+      <div th:replace="~{layout :: saveButtons}"></div>
+    </form>
+  </section>
+  <section th:if="${page == 'stock' and adjustStock}" class="panel"><h2>Stock correction</h2>
+    <p class="hint">Enter a signed base quantity, not a replacement balance. Positive adds stock; negative removes stock. Posted movements cannot be edited or deleted.</p>
+    <form data-stock="adjustments" class="editor">
+      <input name="branchId" type="hidden">
+      <label>Batch<select name="batchId" data-batch-branch required><option value="">Choose batch</option>
+        <option th:each="batch : ${batchPage.batches}" th:value="${batch.id}" th:attr="data-branch=${batch.branchId}" th:text="${batch.branch} + ' / ' + ${batch.product} + ' / ' + ${batch.lotCode} + ' (' + ${batch.baseUnit} + ')'"></option></select></label>
+      <label>Signed quantity (base unit)<input name="quantity" type="number" min="-9999999999999.999999" max="9999999999999.999999" step="0.000001" required></label>
+      <label>Reason<input name="reason" required maxlength="500"></label>
+      <div th:replace="~{layout :: saveButtons}"></div>
+    </form>
+  </section>
+  <section th:if="${page == 'stock' or page == 'movement-report'}" id="stock-history" class="panel"><h2>Posted movements</h2>
+    <p class="hint" th:text="${inventory.movementCount} + ' matching movements. Up to 100 per page, newest posting first. Receipt dates do not backdate ledger entries.'"></p>
+    <div class="table-scroll"><table><thead><tr><th>Posted (UTC) / actor</th><th>Branch / product / lot</th><th>Movement</th><th>Base quantity</th><th>Source / reason</th><th>Correction</th></tr></thead>
+      <tbody><tr th:each="movement : ${inventory.movements}">
+        <td><span th:text="${movement.postedAt}"></span><small th:text="${movement.actorId}"></small></td>
+        <td><span th:text="${movement.branch} + ' / ' + ${movement.product}"></span><small th:text="${movement.lotCode}"></small></td>
+        <td><span th:text="${movement.kind}"></span><small th:if="${movement.reversalOf != null}" th:text="'Reversal of ' + ${movement.reversalOf}"></small></td>
+        <td th:text="${movement.quantity} + ' ' + ${movement.baseUnit}"></td>
+        <td><span th:text="${movement.source}"></span><small th:text="${movement.notes}"></small></td>
+        <td><span th:if="${movement.reversed}">Reversed</span>
+          <button th:if="${page == 'stock' and adjustStock and !movement.reversed and movement.reversalOf == null}" type="button" class="secondary"
+            data-reverse th:attr="data-id=${movement.id},data-branch=${movement.branchId}">Reverse</button></td>
+      </tr><tr th:if="${inventory.movements.isEmpty()}"><td colspan="6">No movements in the selected interval.</td></tr></tbody>
+    </table></div>
+    <nav class="tabs" aria-label="Movement pages">
+      <a th:if="${inventory.page > 0}" th:href="@{${inventoryPath}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page - 1})}">Previous</a>
+      <a th:if="${(inventory.page + 1L) * 100 < inventory.movementCount}" th:href="@{${inventoryPath}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page + 1})}">Next</a>
+    </nav>
+  </section>
+  <section th:if="${page == 'stock' and adjustStock}" id="stock-reversal" class="panel"><h2>Reverse a movement</h2>
+    <p class="hint">Select Reverse in the movement history. This posts an opposite movement; it cannot remove stock already consumed. A receipt line is reversed individually.</p>
+    <form data-stock="reversals" class="editor">
+      <input name="branchId" type="hidden">
+      <label>Movement ID<input name="movementId" required readonly></label>
+      <label>Reason<input name="reason" required maxlength="500"></label>
+      <div th:replace="~{layout :: saveButtons}"></div>
+    </form>
+  </section>
+  <section th:if="${page == 'stock' and adjustStock}" id="stock-threshold" class="panel"><h2>Low-stock minimum</h2>
+    <p class="hint">Minimums are per branch/product in its base unit. Use Set minimum above to edit an existing value. Zero is a valid minimum; stock at or below it triggers an alert.</p>
+    <form data-stock="thresholds" class="editor">
+      <input name="expectedVersion" type="hidden" value="-1">
+      <label>Branch<select name="branchId" required><option value="">Choose branch</option>
+        <option th:each="branch : ${inventory.branches}" th:value="${branch.id}" th:text="${branch.name}"></option></select></label>
+      <label>Product<select name="productId" required><option value="">Choose product</option>
+        <option th:each="product : ${inventory.products}" th:value="${product.id}" th:text="${product.name} + ' (' + ${product.baseUnit} + ')'"></option></select></label>
+      <label>Minimum (base unit)<input name="minimumQuantity" type="number" min="0" max="9999999999999.999999" step="0.000001" required></label>
+      <div th:replace="~{layout :: saveButtons}"></div>
+    </form>
+  </section>
+</main>
+</body></html>

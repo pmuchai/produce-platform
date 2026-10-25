@@ -1,6 +1,10 @@
 package com.primeroot.platform.access;
 
 public enum Permission {
+	STOCK_VIEW("View inventory, batches and movements within the assigned branch scope"),
+	STOCK_RECEIVE("Receive stock into branches within the assigned scope"),
+	STOCK_ADJUST("Correct stock, reverse movements and configure branch stock minimums"),
+	STOCK_SPOILAGE("Record batch spoilage within the assigned branch scope"),
 	CATALOGUE_VIEW("View produce, grades, products, units and conversions"),
 	CATALOGUE_MANAGE("Manage the business-wide product catalogue and units"),
 	BRANCH_VIEW("View branches within the assigned scope"),

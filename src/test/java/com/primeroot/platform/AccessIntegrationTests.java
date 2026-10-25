@@ -75,8 +75,8 @@ class AccessIntegrationTests extends OidcTestSupport {
 			assertThat(cataloguePage.statusCode()).isEqualTo(200);
 			assertThat(cataloguePage.body()).contains("Tomatoes Grade A", "data-resource=\"products\"",
 				"data-resource=\"units\"", "data-resource=\"packaging\"", "data-resource=\"convert\"",
-				"Main navigation", "Receivables / Stock entries", "Stock movement");
-			for (var page : List.of("/ui/configurations", "/ui/branches", "/ui/users", "/ui/reports")) {
+				"Main navigation", "Receive stock", "Stock Movement");
+			for (var page : List.of("/ui/configurations", "/ui/branches", "/ui/users", "/ui/reports", "/ui/reports/audit")) {
 				assertThat(admin.get(page).statusCode()).as(page).isEqualTo(200);
 			}
 			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action LIKE 'CATALOGUE_%'",
@@ -298,7 +298,8 @@ class AccessIntegrationTests extends OidcTestSupport {
 				.statusCode()).isEqualTo(200);
 			var home = operator.get("/home").body();
 			assertThat(home).contains("Welcome, Branch Operator", "Assigned active branches", "1 visible")
-				.doesNotContain("Staff access", "Audit activity", "/api/users", "/api/audit-events", "2 visible");
+				.doesNotContain("Staff access", "<h2>Audit activity</h2>", "href=\"/ui/reports/audit\"",
+					"/api/users", "/api/audit-events", "2 visible");
 		}
 	}
 
@@ -312,7 +313,34 @@ class AccessIntegrationTests extends OidcTestSupport {
 			assertThat(browser.login(OidcTestProvider.ADMIN_SUBJECT, List.of("ADMIN"),
 				OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
 			assertThat(browser.get("/home").body()).contains("No summary dashboards", "No business permissions assigned")
-				.doesNotContain("Staff access", "Audit activity", "/api/branches");
+				.doesNotContain("Staff access", "<h2>Audit activity</h2>", "href=\"/ui/reports/audit\"", "/api/branches");
+		}
+	}
+
+	@Test
+	void landingRoutesStartKeycloakDirectlyAndAuthenticatedStaffGoToTheirWorkspace() throws Exception {
+		try (var browser = browser()) {
+			for (var path : List.of("/", "/login")) {
+				var page = browser.get(path);
+				assertThat(page.statusCode()).as(path).isEqualTo(302);
+				assertThat(URI.create(page.headers().firstValue("Location").orElseThrow()).getPath())
+					.isEqualTo("/oauth2/authorization/keycloak");
+			}
+			for (var path : List.of("/assets/produce-distribution.svg", "/assets/prime-root-mark.svg")) {
+				var image = browser.get(path);
+				assertThat(image.statusCode()).as(path).isEqualTo(200);
+				assertThat(image.headers().firstValue("Content-Type").orElseThrow()).startsWith("image/svg+xml");
+				assertThat(image.body()).contains("<svg");
+			}
+			assertThat(browser.get("/api/auth/me").statusCode()).isEqualTo(401);
+			browser.adminLogin();
+			for (var path : List.of("/", "/login")) {
+				var page = browser.get(path);
+				assertThat(page.statusCode()).as(path).isEqualTo(302);
+				assertThat(URI.create(page.headers().firstValue("Location").orElseThrow()).getPath()).isEqualTo("/home");
+			}
+			assertThat(browser.get("/home").body()).contains("Prime Root", "PRIME ROOT", "| Prime Root")
+				.doesNotContain("Produce Platform", "PRODUCE PLATFORM");
 		}
 	}
 
@@ -320,7 +348,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 	void migrationsRetainExternalIdentitySchemaAndEnforceForeignKeys() {
 		assertThat(jdbc.queryForList(
 			"SELECT \"version\" FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", String.class))
-			.containsExactly("1", "2");
+			.containsExactly("1", "2", "3", "4");
 		assertThat(jdbc.queryForList("SELECT table_name FROM information_schema.tables WHERE table_schema = 'PUBLIC'", String.class))
 			.contains("BRANCHES", "STAFF_USERS", "USER_BRANCHES", "AUDIT_EVENTS")
 			.doesNotContain("ROLES", "PERMISSIONS", "ROLE_PERMISSIONS");
@@ -588,7 +616,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
-	void logoutRequiresCsrfEndsTheSessionAndReturnsThroughProviderLogoutToKeycloakLogin() throws Exception {
+	void logoutRequiresCsrfEndsTheSessionAndReturnsThroughProviderLogoutToPrimeRootLogin() throws Exception {
 		try (var admin = browser()) {
 			admin.adminLogin();
 			assertThat(admin.send("POST", URI.create("http://localhost:" + port + "/api/auth/logout"), null, null).statusCode()).isEqualTo(403);
@@ -602,7 +630,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 			assertThat(admin.get("/api/auth/me").statusCode()).isEqualTo(401);
 			var landing = admin.get(providerLogout.headers().firstValue("Location").orElseThrow());
 			assertThat(landing.statusCode()).isEqualTo(302);
-			assertThat(landing.headers().firstValue("Location").orElseThrow())
+			assertThat(URI.create(landing.headers().firstValue("Location").orElseThrow()).getPath())
 				.isEqualTo("/oauth2/authorization/keycloak");
 			var login = admin.get(landing.headers().firstValue("Location").orElseThrow());
 			assertThat(login.statusCode()).isEqualTo(302);

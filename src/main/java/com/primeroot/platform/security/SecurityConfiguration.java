@@ -44,14 +44,16 @@ public class SecurityConfiguration {
 		http
 			.csrf(Customizer.withDefaults())
 			.authorizeHttpRequests(authorize -> authorize
-				.requestMatchers(HttpMethod.GET, "/", "/actuator/health", "/api/auth/csrf",
-					"/assets/app.css", "/assets/app.js").permitAll()
+				.requestMatchers(HttpMethod.GET, "/", "/login", "/actuator/health", "/api/auth/csrf",
+					"/assets/app.css", "/assets/app.js", "/assets/prime-root-mark.svg",
+					"/assets/produce-distribution.svg").permitAll()
 				.requestMatchers("/oauth2/authorization/keycloak", "/login/oauth2/code/keycloak").permitAll()
 				.requestMatchers("/home", "/ui/**", "/api/**").authenticated()
 				.anyRequest().denyAll())
 			.requestCache(cache -> cache.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
 			.oauth2Login(login -> login
+				.loginPage("/login")
 				.authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(resolver))
 				.userInfoEndpoint(endpoint -> endpoint.oidcUserService(staffOidcUserService))
 				.successHandler((request, response, authentication) ->

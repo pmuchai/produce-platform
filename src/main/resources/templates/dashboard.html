@@ -10,9 +10,15 @@
   <form th:replace="~{layout :: dates(@{/home})}"></form>
   <section aria-label="Business trends" class="grid four">
     <article class="card pending"><p class="eyebrow">SALES TREND</p><h2>Not available yet</h2><p>Sales transactions and prior-interval comparisons arrive with the Sales module.</p></article>
-    <article class="card pending"><p class="eyebrow">STOCK LEVELS</p><h2>Not available yet</h2><p>On-hand balances, receipts and low-stock alerts arrive with Inventory.</p></article>
+    <article class="card" th:if="${canStock}"><p class="eyebrow">STOCK LEVELS</p><h2 th:text="${inventory.lowStockCount} + ' low-stock alerts'"></h2>
+      <p th:text="${inventory.nearExpiryCount} + ' batches expired or due within seven days'"></p><a th:href="@{/ui/reports/stock(start=${period.start},end=${period.end})}">View stock report</a></article>
+    <article class="card pending" th:unless="${canStock}"><p class="eyebrow">STOCK LEVELS</p><h2>No access</h2><p>Stock viewing permission is required.</p></article>
     <article class="card pending"><p class="eyebrow">BRANCH PERFORMANCE</p><h2>Not available yet</h2><p>Branch revenue and stock efficiency require sales and stock transactions.</p></article>
     <article class="card pending"><p class="eyebrow">USER PERFORMANCE</p><h2>Not available yet</h2><p>Staff sales performance requires attributed transactions. Sign-ins are not a performance score.</p></article>
+  </section>
+  <section th:if="${canStock}" class="panel">
+    <h2>Stock by branch and product</h2>
+    <div th:replace="~{stock-summary :: balances}"></div>
   </section>
   <div class="section-heading"><h2>Operational overview</h2><span class="muted">Current snapshots, not historical balances</span></div>
   <section aria-label="Summary dashboards" class="grid">
@@ -35,9 +41,9 @@
       <p class="metric" th:text="${auditCount} + ' events'"></p>
       <p th:text="(${auditDelta >= 0} ? '+' : '') + ${auditDelta} + ' vs previous equal-length interval (' + ${previousCount} + ')'"></p>
       <p class="hint">System activity in the selected dates, not sales or staff performance.</p>
-      <a th:href="@{/ui/reports(start=${period.start},end=${period.end})}">View activity report</a>
+      <a th:href="@{/ui/reports/audit(start=${period.start},end=${period.end})}">View activity report</a>
     </article>
-    <article class="card" th:unless="${canCatalogue or canBranches or canUsers or canAudit}">
+    <article class="card" th:unless="${canCatalogue or canBranches or canUsers or canAudit or canStock}">
       <h2>Your workspace is ready</h2><p>No summary dashboards are available for your current permissions and branch scope.</p>
     </article>
   </section>

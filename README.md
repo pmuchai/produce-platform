@@ -1,9 +1,10 @@
-# Produce Platform
+# Prime Root
 
 A modular fresh-produce platform for branch operations, inventory, sales and
 spoilage control. Phase 0 provides the backend foundation; Phase 1 provides
 Branches and Access. Phase 2 adds Catalogue and Units, maintenance screens and
-a shared, permission-aware workspace.
+a shared, permission-aware workspace. Phase 3 adds branch inventory, receipts,
+batch traceability, receipt purchase costs, spoilage, corrections and stock reporting.
 
 ## Requirements
 
@@ -32,6 +33,10 @@ The application implements these capabilities:
 | `AUDIT_VIEW` | Read the latest 100 administrative audit events; business-wide scope required |
 | `CATALOGUE_VIEW` | View the shared product catalogue and calculate unit conversions |
 | `CATALOGUE_MANAGE` | Maintain catalogue definitions and fixed packaging conversions; business-wide scope required |
+| `STOCK_VIEW` | View inventory, stock reports, batches, movements and receiving pickers within branch scope |
+| `STOCK_RECEIVE` | Post receipts into active branches within scope |
+| `STOCK_SPOILAGE` | Record batch losses within branch scope |
+| `STOCK_ADJUST` | Post signed corrections, reverse movements and configure stock minimums within scope |
 
 Permissions are independent: managing does not implicitly grant viewing.
 Only these exact permission codes in the validated ID token's `app_roles`
@@ -70,8 +75,8 @@ For local development, start Keycloak on port 8081 and create:
 3. Exact valid redirect URI
    `http://localhost:8080/login/oauth2/code/keycloak` and exact valid post-logout
    redirect URI `http://localhost:8080/`. Do not use wildcards.
-4. The seven client permission roles listed above. Create a composite `ADMIN`
-   role containing all seven. Create other job-function composites from the
+4. The eleven client permission roles listed above. Create a composite `ADMIN`
+   role containing all eleven. Create other job-function composites from the
    relevant permissions and assign them to staff.
 5. A **User Client Role** protocol mapper for client `produce-platform`, claim
    `app_roles`, JSON type `String`, multivalued, included in the **ID token**.
@@ -80,7 +85,7 @@ For local development, start Keycloak on port 8081 and create:
    If Full Scope Allowed is disabled, explicitly map the required roles.
 6. A test staff user with a permanent Keycloak credential and the composite
    `ADMIN` assignment. Copy that user's **ID**, not a role ID or client ID.
-   Use Keycloak's token evaluation to check that `app_roles` includes the seven
+   Use Keycloak's token evaluation to check that `app_roles` includes the eleven
    effective permission codes.
 
 **Upgrading from Phase 1:** add `CATALOGUE_VIEW` and `CATALOGUE_MANAGE` client
@@ -90,6 +95,14 @@ because the application adds permission codes. Sign out and sign back in to
 obtain the updated ID-token claims. Catalogue readers need only
 `CATALOGUE_VIEW`; editing screens require that view permission plus
 `CATALOGUE_MANAGE` and local business-wide scope.
+
+**Upgrading from Phase 2:** add `STOCK_VIEW`, `STOCK_RECEIVE`,
+`STOCK_SPOILAGE` and `STOCK_ADJUST` to the relevant Keycloak client composites
+and scope mappings, then sign out and sign in afresh. No new local roles or
+staff identities are needed. Inventory operators do not need catalogue
+management, branch management or business-wide access. Include `STOCK_VIEW`
+alongside their posting permissions for the inventory screens. Restrict
+`STOCK_ADJUST` to staff authorized to correct balances and reverse postings.
 
 Browser redirects need no permissive CORS configuration. No application CORS
 policy or wildcard Web Origins is needed for this same-origin backend.
@@ -160,8 +173,13 @@ Remove-Item Env:BOOTSTRAP_ADMIN_FULL_NAME
 
 Check `http://localhost:8080/actuator/health`; it should return `{"status":"UP"}`.
 This checks infrastructure, including the database, not staff permission
-configuration. Open `http://localhost:8080/oauth2/authorization/keycloak` in a
-browser, sign in at Keycloak, and verify that `/home` displays your welcome
+configuration. Install and activate the Prime Root Keycloak theme below, then
+open `http://localhost:8080/` in a browser. It starts Keycloak sign-in directly,
+with credentials entered inside the green Prime Root design and its local
+produce-distribution artwork featuring red bulb onions, tomatoes and capsicum. The
+headline is **YOUR FRESH PRODUCE DISTRIBUTION NETWORK**, with growers, deliveries
+and branches presented as one connected network. There is no intermediate application landing page.
+Sign in and verify that `/home` displays your welcome
 dashboard. `/api/auth/me` still exposes your local staff profile and the expected
 effective permission codes. No password is
 submitted to this application.
@@ -174,6 +192,42 @@ Remove-Item Env:KEYCLOAK_CLIENT_SECRET
 Remove-Variable dbCredential, clientCredential
 ```
 
+### Prime Root Keycloak login theme
+
+The custom login theme lives in `keycloak\themes\prime-root` and is validated
+against **Keycloak 26.8.1**. Install it into the Keycloak distribution:
+
+```powershell
+.\keycloak\Install-PrimeRootTheme.ps1 -KeycloakHome "C:\tools\keycloak-26.8.1"
+```
+
+The installer copies the theme and the original logo/produce artwork from the
+application's canonical assets; no external image or font service is used.
+It changes files only inside `themes\prime-root`; it does not authenticate to
+Keycloak, change the realm/client, or modify the database.
+
+In the Keycloak Admin Console select the `produce-platform` realm, then
+**Realm settings > Themes > Login theme > prime-root**, and save. If the
+`produce-platform` client's advanced settings specify a **Login theme**
+override, select `prime-root` there as well (or remove the override to inherit
+the realm theme). Start a fresh sign-in to verify the selection.
+The application JAR alone cannot activate an identity-provider theme.
+
+The theme extends `keycloak.v2` and overrides only the supported footer hook,
+branding messages, and CSS. Keycloak retains its native credential forms,
+error messages, password visibility, recovery, session handling, MFA setup and
+challenge screens. No credential-handling JavaScript, copied authentication
+templates, application password form, or login iframe is introduced.
+Revalidate these flows when upgrading Keycloak, particularly if its layout
+classes change. Production theme caching should stay enabled. While editing
+the theme in development, the Keycloak options
+`--spi-theme--static-max-age=-1 --spi-theme--cache-themes=false --spi-theme--cache-templates=false`
+allow changes to be reloaded without stale templates/styles.
+
+OIDC still redirects to the Keycloak origin: matching visuals do not hide
+that security boundary or change callback/logout URIs. A shared-domain reverse
+proxy is a separate deployment concern.
+
 ## API and session workflow
 
 Spring Security performs OIDC discovery, code exchange, PKCE S256, signature,
@@ -184,13 +238,13 @@ to the identity provider.
 
 | Method | Endpoint | Result |
 | --- | --- | --- |
-| GET | `/` | Redirects to Keycloak sign-in, including after provider logout |
+| GET | `/`, `/login` | Start Keycloak sign-in directly; authenticated staff redirect to `/home` |
 | GET | `/oauth2/authorization/keycloak` | Initiate browser login |
 | GET | `/login/oauth2/code/keycloak` | Provider callback; redirects to `/home` after approval |
 | GET | `/home` | Welcome dashboard with permission- and scope-filtered summaries |
 | GET | `/api/auth/csrf` | Public CSRF token, header name and parameter name |
 | GET | `/api/auth/me` | Current local `staff` profile and effective `permissions` |
-| POST | `/api/auth/logout` | CSRF-protected local logout; redirects through Keycloak logout to `/`, then Keycloak sign-in |
+| POST | `/api/auth/logout` | CSRF-protected local logout; redirects through Keycloak logout to `/`, which starts a fresh branded Keycloak login |
 | GET | `/api/permissions` | Authenticated capability catalogue, not local role management |
 | GET | `/api/branches` | Branches visible to the current staff member |
 | GET | `/api/branches/{id}` | Branch within scope |
@@ -201,10 +255,28 @@ to the identity provider.
 | PUT | `/api/users/{id}` | `USER_MANAGE` and global scope; requires the current `If-Match` ETag |
 | GET | `/api/audit-events` | `AUDIT_VIEW` and global scope; latest 100 events |
 
-The left sidebar provides Dashboard, Sales, Receivables / Stock entries,
-Stock movement, Reports, User management and Configurations. Future modules
-are visibly unavailable rather than linking to nonfunctional pages.
-Configurations links to the catalogue and authorized branch listings. User
+Anonymous visits to `/home` or `/ui/**`, and expired workspace sessions, initiate
+Keycloak login directly. APIs continue to return 401 instead of a login-page
+redirect. The Keycloak theme provides the complete branded sign-in screen;
+the application never collects passwords. Authorization Code + PKCE remains
+unchanged. UI branding is **Prime Root**; existing technical application, realm and
+client identifiers remain unchanged.
+
+The left sidebar uses expandable parent sections. Click a parent (or use
+Enter/Space on its heading) to reveal its children. The current section opens
+automatically and its active child is highlighted.
+
+| Parent | Children |
+| --- | --- |
+| Dashboard | Overview |
+| Sales | New sale (coming later) |
+| Stock | Receive stock, Stock Movement |
+| Reports | Stock levels, Stock movements, Audit activity |
+| User management | Staff directory |
+| Configurations | Overview, Catalogue and units, Branches |
+
+Children without the required permissions are visibly unavailable, not
+functional links. Future modules are also marked as unavailable. User
 management currently lists approved staff; staff mutations remain available
 through the Phase 1 APIs. Catalogue maintenance has working create/edit forms.
 
@@ -214,9 +286,10 @@ shows the actual number of audit events in that interval and the absolute
 change against the preceding equal-length interval. Counts are not capped at
 100; the report shows the most recent 100 matching events and the total count.
 Sign-ins and administrative activity are explicitly not staff performance.
-Sales trends, stock balances, branch performance and user performance are
-labelled as unavailable until the corresponding transaction modules exist;
-no illustrative values or zero balances are presented as real business data.
+Sales trends, branch performance and user performance remain unavailable
+until sales transactions exist. With `STOCK_VIEW`, real branch/product stock,
+receipts, spoilage comparisons, low-stock alerts and expiry warnings replace
+the inventory placeholders; no illustrative business figures are presented.
 
 Visible/active branch totals with `BRANCH_VIEW`, approved/active staff totals
 with global `USER_VIEW`, and catalogue totals with `CATALOGUE_VIEW` are labelled
@@ -286,13 +359,210 @@ Quantities/factors accept up to 13 integer digits and six fractional digits.
 Decimal factors and conversion results are serialized as strings to avoid
 losing precision when browser code loads and edits them.
 
+Catalogue responses include a `version`. Updates to types, classifications,
+units, products and existing packaging definitions require `If-Match` with
+that quoted version (for example, `"0"`). Update responses also return an
+`ETag`. Missing preconditions return 428; stale versions return 412.
+New packaging definitions do not require an existing version. The catalogue
+edit forms load and submit the version automatically.
+
 ### Workspace routes
 
 `/home` is the date-filtered dashboard; `/ui/configurations` links to catalogue
 and branches; `/ui/catalogue` provides maintenance and conversion;
-`/ui/branches` and `/ui/users` are scoped read-only directories; `/ui/reports`
-is the date-filtered administrative audit report. Direct page/API access is
+`/ui/branches` and `/ui/users` are scoped read-only directories;
+`/ui/reports/audit` is the date-filtered administrative audit report
+(`/ui/reports` remains an alias). Direct page/API access is
 authorized server-side, not just hidden in navigation.
+
+## Phase 3: Inventory and spoilage
+
+Expand **Stock** and select **Receive stock** (`/ui/stock-entries`) to post
+incoming stock and inspect receipt batches and their costs. Select
+**Stock Movement** (`/ui/stock`) to record spoilage, post corrections, reverse
+eligible posted movements and maintain minimums. Both screens show live
+on-hand quantities; inter-branch transfers are not implemented.
+
+All read-only reports are grouped under **Reports**:
+**Stock levels** (`/ui/reports/stock`) shows current/as-of branch/product
+balances, receipt/spoilage interval comparisons, batch costs and expiry alerts.
+**Stock movements** (`/ui/reports/stock-movements`) provides date/branch-filtered,
+paginated movement history without posting or reversal controls.
+Both require `STOCK_VIEW` and enforce the same branch scope as inventory.
+Batch details are searched by lot/product and paginated separately, with at most
+100 batches per page. Stock Movement's **Find a batch** controls also determine
+the batches available in its spoilage/correction pickers.
+**Audit activity** (`/ui/reports/audit`) separately requires `AUDIT_VIEW` and
+business-wide scope. Stock-only staff can open stock reports without audit access;
+audit-only staff cannot open stock reports. Reports never contain inventory
+mutation forms, even for administrators.
+
+### Posting and traceability
+
+- A receipt posts immediately, has a destination branch, physical received
+  date, source/delivery reference, optional notes and 1–50 product lines.
+  Every line creates its own batch with a lot reference and optional
+  expiry/best-before date. Reusing a lot label does not merge separate deliveries.
+- Select a mass/count unit compatible with the product, a defined fixed
+  packaging conversion, or enter the **actual total measured base quantity**
+  for variable-weight packaging. That last value is the total for the line,
+  not the weight per package. It is only allowed for packaging units.
+- Input quantities, applied conversion numerator/denominator and resulting
+  base quantities are saved on each batch. Later catalogue edits do not
+  recalculate existing stock. A positive input that rounds to zero, a converted
+  quantity outside the supported range, or an invalid line rejects the entire
+  receipt, including its audit entry.
+- Receipts require active branches/products/catalogue dependencies. Corrections
+  and spoilage can dispose of stock whose product has since been deactivated.
+  Business-wide staff can correct stock in closed branches; branch-scoped
+  access to a deactivated branch is removed as in Phase 1.
+- Spoilage takes a positive loss quantity and mandatory reason. Adjustments
+  take a **signed delta** in the product's base unit, not a replacement balance.
+  They also require a reason. Zero adjustments are rejected.
+- Posted movements have no edit/delete endpoint. Reverse an original movement
+  once to append the opposite quantity with an explanation. Receipt corrections
+  reverse individual lines. Reversing a reversal is not permitted; a new,
+  explicitly justified adjustment can correct a reversal.
+- The ledger is authoritative. Each batch balance is a transactional projection
+  of its movement sum. Postings lock the destination branch row before checking
+  balances and retry IDs, preventing concurrent over-deductions, including
+  receipt reversals. Movements, balances and audit events commit together.
+  Negative stock and quantities exceeding the per-batch limit are rejected.
+
+Every receipt, spoilage, adjustment or reversal requires a client-generated
+UUID `requestId`. Retrying the same request as the same actor returns the
+original operation without posting twice. Reusing it with a different payload
+or actor returns 409. The browser retains this ID while a form is awaiting a
+successful response, including network retries. After an uncertain result,
+retry **without clearing or changing the form**; inspect movement history
+before deliberately starting a new posting. Re-entering a delivery with a new
+ID is a new business operation, not an automatic duplicate-reference check.
+
+### Receipt purchase costs
+
+New receipts require `currency` and a `purchaseUnitCost` on every line.
+The business currency defaults to **Kenya Shilling (KES)** through
+`platform.inventory.currency=${INVENTORY_CURRENCY:KES}`. The receiving screen
+prefills it as a read-only field, and the server rejects another currency.
+Invalid currency configuration fails startup rather than assuming a currency.
+The currency is saved on each batch so configuration changes cannot reinterpret
+previous receipt amounts. No currency conversion is performed.
+
+Enter cost **per selected delivered unit**, not per base stock unit unless
+they are the same. For example, two crates at KES 2,000 each cost KES 4,000.00.
+If their actual total weight is 50 kg, the derived purchase cost is KES 80/kg.
+For a fixed conversion, the same calculation uses the snapshotted received
+base quantity. Different delivery lines remain separate batches and costs.
+
+Unit costs are required, nonnegative decimals with up to 13 integer and six
+fractional digits. Explicit zero is permitted for free stock; missing cost is
+not treated as zero. The server multiplies delivered quantity by unit cost
+using decimal arithmetic and rounds each original batch total **half up** to
+the currency's standard fractional digits (two for KES). Rounded amounts and
+the entered unit cost are saved immutably with the receipt. Retry identity
+includes the submitted currency and costs.
+
+The batch API and screens expose `currency`, `purchaseUnitCost`,
+`receivedCost` (original rounded batch total) and `baseUnitCost` (that total
+divided by original received base quantity, rounded half up to 12 decimal
+places). Decimal amounts are returned as strings. The original total is
+authoritative; the derived unit rate is informational and can have rounding
+differences. Do not reconstruct a financial total by multiplying a rounded
+derived rate.
+
+These amounts are **original purchase costs, not current stock valuation**.
+Spoilage, adjustments and reversals change quantities but do not overwrite the
+original receipt cost. No landed-cost allocation, tax calculation, remaining
+stock valuation, cost-of-sales or profit calculation is introduced here.
+Amounts entered should represent the purchase price for that selected unit;
+separately allocated freight/taxes are not added by the application.
+
+V4 leaves earlier batches with null cost/currency fields. They are labelled
+**Cost unknown**, not KES 0.00, and remain usable for inventory operations.
+No cost backfill/edit API is provided. New API clients must send the costing
+fields; an old receipt payload without them returns 400.
+
+### Stock reporting and alerts
+
+Stock screens support branch filters and the shared UTC date interval.
+Balances are shown separately for each branch/product/base unit; kilograms,
+pieces and differently configured product base units are never added together.
+The current balance and batch/expiry alerts are **live snapshots**, independent
+of the historical date selector. The as-of balance is reconstructed from
+movements posted before midnight following the selected end date.
+
+Receipt and spoilage columns show **net posted quantities** in the selected
+interval and in the preceding equal-length interval. Reversals retain the
+original receipt/spoilage category with the opposite sign, so a period may
+legitimately have negative net receipts or net spoilage. Physical received
+dates do not backdate the ledger or alter previous reports. Movement history
+shows the posting time, actor ID, batch, source/reason and reversal reference,
+with 100 rows per page and an uncapped matching count.
+Current balances are aggregated in the database without loading every batch.
+Inventory snapshots exclude batch detail rows; use the separate batch endpoint
+for paginated batch quantities, receipt costs and conversion snapshots.
+
+Minimum stock is optional and specific to a branch/product in its base unit.
+Stock **at or below** the configured minimum triggers an alert, including a
+configured product with no receipts. Zero is a valid minimum. Creating a
+threshold uses `expectedVersion: -1`; updates must send its current version
+from the balance row. Stale updates return 412; the UI's **Set minimum**
+button loads the current version.
+
+Available batches with expiry/best-before on or before seven days from today
+are flagged, including already-expired batches. Expiry does not silently deduct
+stock: an authorized user records the actual spoilage.
+
+### Inventory API
+
+All mutations require the existing CSRF header and local branch scope.
+Posting permissions are independent of `STOCK_VIEW`; the view permission
+includes inventory product/unit/branch pickers, not catalogue maintenance.
+Quantities and purchase unit costs accept up to 13 integer and six fractional
+digits; responses retain decimal strings.
+
+| Method | Endpoint | Permission / purpose |
+| --- | --- | --- |
+| GET | `/api/inventory?branchId=...&start=YYYY-MM-DD&end=YYYY-MM-DD&page=0` | `STOCK_VIEW`; optional branch and dates, zero-based movement page |
+| GET | `/api/inventory/batches?branchId=...&search=...&page=0` | `STOCK_VIEW`; scoped batch details and receipt costs, lot/product search, at most 100 rows per page |
+| POST | `/api/inventory/receipts` | `STOCK_RECEIVE`; create batches and movements; 201 |
+| POST | `/api/inventory/spoilage` | `STOCK_SPOILAGE`; positive loss quantity |
+| POST | `/api/inventory/adjustments` | `STOCK_ADJUST`; signed quantity delta |
+| POST | `/api/inventory/reversals` | `STOCK_ADJUST`; reverse one original movement |
+| PUT | `/api/inventory/thresholds` | `STOCK_ADJUST`; version-checked minimum |
+
+Example receipt (replace placeholder IDs, including a fresh UUID for `requestId`):
+
+```json
+{
+  "requestId": "fresh-request-uuid",
+  "branchId": "branch-uuid",
+  "receivedDate": "2026-10-24",
+  "source": "Farm / delivery reference",
+  "currency": "KES",
+  "notes": "Measured at receiving",
+  "lines": [{
+    "productId": "product-uuid",
+    "unitId": "crate-unit-uuid",
+    "quantity": "3",
+    "purchaseUnitCost": "2000.00",
+    "measuredBaseQuantity": "57.125",
+    "lotCode": "FARM-LOT-001",
+    "expiryDate": "2026-10-29"
+  }]
+}
+```
+
+For ordinary/fixed-unit receipts, omit `measuredBaseQuantity`.
+Spoilage/adjustment bodies use `requestId`, `branchId`, `batchId`, `quantity`
+and `reason`. Reversals use `requestId`, `branchId`, `movementId` and `reason`.
+Threshold bodies use `branchId`, `productId`, `minimumQuantity` and
+`expectedVersion`.
+
+No sale deduction, inter-branch transfer workflow, selling-price management,
+remaining-stock valuation,
+supplier balances, customer receivables or automatic replenishment is
+implemented in Phase 3.
 
 Branch creation/update uses:
 
@@ -333,8 +603,8 @@ For logout, submit a POST form to `/api/auth/logout` with a hidden field named
 by `csrf.parameterName` and containing `csrf.token`. Browser navigation follows
 the provider logout redirect; an AJAX request is not a replacement for that
 navigation. The existing exact post-logout URI `http://localhost:8080/` remains
-valid: its redirect starts a fresh Authorization Code + PKCE sign-in after
-Keycloak has ended the SSO session.
+valid: after Keycloak has ended the SSO session, its redirect to `/` starts
+a fresh Authorization Code + PKCE sign-in with the branded Keycloak screen.
 
 Errors use `application/problem+json`: 400 invalid input, 401 absent/expired/
 revoked authentication, 403 insufficient access or invalid/missing CSRF,
@@ -360,7 +630,7 @@ are outside this phase.
 
 The initial migration,
 `src\main\resources\db\migration\V1__branches_and_access.sql`, containing the
-complete current schema:
+complete Phase 1 schema:
 
 | Table | Purpose |
 | --- | --- |
@@ -375,6 +645,17 @@ uniqueness and positive-factor constraints. It seeds KG, G, PIECE, CRATE and
 BAG, but no sample produce/products or business transactions.
 V1 remains unchanged; V2 upgrades the deployed Phase 1 schema without replacing
 staff identities, branches or audit history.
+
+`V3__inventory_and_spoilage.sql` adds `stock_operations`, `stock_batches`,
+`stock_movements` and `stock_thresholds`, with foreign keys, quantity checks
+and unique reversal/threshold constraints. It preserves V1/V2 and all existing
+access/catalogue data. It creates no sample stock, receipts or thresholds.
+
+`V4__receipt_purchase_costs.sql` adds nullable currency, purchase unit cost and
+original received cost fields to batches, with all-or-none/nonnegative cost
+constraints. Earlier batches preserve their quantities and unknown costs.
+New receipts require the costing fields at the API boundary. V1–V3 remain
+unchanged.
 
 The uncommitted Phase 1 migrations were consolidated before deployment, after
 confirming the local PostgreSQL database had no applied migrations or business
@@ -408,11 +689,19 @@ logout, validation, bootstrap safeguards, foreign keys and audit persistence.
 Phase 2 tests cover migration preservation, catalogue permissions, matching
 classifications, dependency deactivation, dimension safety, explicit packaging
 factors, catalogue templates and date-filtered dashboard/report boundaries.
+Phase 3 covers V2-to-V3 preservation, atomic multi-line receipts, saved
+conversion factors, measured packaging, duplicate retries, competing
+deductions, reversals, branch isolation, CSRF, versioned thresholds, expiry
+alerts and posting-date/as-of reporting. Receipt costing tests cover selected
+receiving units, measured packaging, KES rounding, zero/invalid/missing costs,
+retry identity, unchanged original amounts after stock losses, and V3-to-V4
+preservation of unknown legacy costs.
 No live PostgreSQL/Keycloak instance or real credentials are needed.
 
 An opt-in headless Chrome/Chromium browser test exercises consecutive
-create/edit saves, table refreshes, exact packaging calculations, visible
-validation errors and mobile overflow. It uses the same local signed OIDC
+create/edit saves, table refreshes, exact packaging calculations, multi-line
+inventory receiving with unit/batch costs, spoilage, corrections, reversals, threshold editing,
+visible validation errors and mobile overflow. It uses the same local signed OIDC
 fixture, an isolated browser profile and the browser's built-in debugging
 protocol; no Selenium driver or browser download is required. Point
 `ui.browser` to your installed compatible Chromium executable:
@@ -423,6 +712,36 @@ protocol; no Selenium driver or browser download is required. Point
 
 The browser test is skipped when that property is absent, keeping the normal
 test suite usable on machines without a browser.
+
+A second opt-in browser check verifies the actual Keycloak theme, including
+native username/password controls, invalid-credential feedback, password
+recovery, authenticator setup, local artwork and mobile layout. Use an isolated
+Keycloak realm named `prime-root-theme-test` with `loginTheme=prime-root`,
+password reset enabled and a `theme-fixture` user whose required actions include
+`CONFIGURE_TOTP`. Do not use a production realm or real staff credentials.
+Set `KEYCLOAK_THEME_TEST_URL` to that local realm's valid OIDC authorization URL
+(including the test client's redirect URI and PKCE parameters), and
+`KEYCLOAK_THEME_TEST_PASSWORD` to the fixture account's password. Then run:
+
+```powershell
+.\mvnw.cmd "-Dtest=CatalogueBrowserTests#keycloakThemeRetainsNativeCredentialsErrorsRecoveryAndAuthenticatorSetup" "-Dui.browser=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" test
+```
+
+The theme check requires a loopback host and the exact isolated realm name.
+It is skipped unless `KEYCLOAK_THEME_TEST_URL` is set; ordinary application
+tests continue using the local OIDC fixture, without a Keycloak installation.
+
+For a read-only appearance check against a running local Keycloak login page,
+set `KEYCLOAK_THEME_VISUAL_TEST_URL` to its valid OIDC authorization URL, then run:
+
+```powershell
+.\mvnw.cmd "-Dtest=CatalogueBrowserTests#keycloakBrandIsReadableAndNetworkTaglineAlignsWithLoginFields" "-Dui.browser=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" test
+```
+
+This check requires a loopback host and never submits credentials. It verifies
+the fresh-produce headline, brand text contrast, tagline alignment with the
+login fields at desktop widths, red bulb onion artwork description and mobile
+overflow.
 
 H2 runs in PostgreSQL compatibility mode; it is not a replacement for checking
 actual PostgreSQL startup and migrations. H2, test configuration and the OIDC
@@ -439,5 +758,6 @@ The automated OIDC fixture is not started by this command. H2 data disappears
 when the process exits, so bootstrap is needed for every new manual H2 process.
 No PostgreSQL credentials are required in this mode.
 
-Next module: Inventory with early spoilage controls. Sales, payments,
-accounting, farm tracking and AI remain outside Phase 2.
+Next module: Sales and payments, using the branch inventory ledger for safe
+stock deductions. Inter-branch transfers, accounting, farm tracking and AI
+remain later modules.

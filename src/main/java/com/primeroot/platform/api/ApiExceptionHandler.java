@@ -3,6 +3,7 @@ package com.primeroot.platform.api;
 import java.util.Map;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -40,6 +41,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	public ProblemDetail concurrentUpdate(ObjectOptimisticLockingFailureException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
 			"The record changed concurrently; reload it and try again");
+	}
+
+	@ExceptionHandler(PessimisticLockingFailureException.class)
+	public ProblemDetail postingInProgress(PessimisticLockingFailureException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+			"Another stock posting is in progress; retry the unchanged request with the same request ID");
 	}
 
 	@ExceptionHandler(AccessDeniedException.class)

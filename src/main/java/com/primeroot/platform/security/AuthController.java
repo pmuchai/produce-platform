@@ -2,14 +2,10 @@ package com.primeroot.platform.security;
 
 import java.util.Arrays;
 import java.util.List;
-import java.net.URI;
 
 import com.primeroot.platform.access.AccessDtos.CurrentUserResponse;
 import com.primeroot.platform.access.Permission;
 import com.primeroot.platform.access.StaffService;
-import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,12 +26,6 @@ public class AuthController {
 	@GetMapping("/api/auth/me")
 	public CurrentUserResponse me() {
 		return users.me();
-	}
-
-	@GetMapping("/")
-	public ResponseEntity<Void> home(HttpServletRequest request) {
-		return ResponseEntity.status(HttpStatus.FOUND)
-			.location(URI.create(request.getContextPath() + "/oauth2/authorization/keycloak")).build();
 	}
 
 	@GetMapping("/api/permissions")
