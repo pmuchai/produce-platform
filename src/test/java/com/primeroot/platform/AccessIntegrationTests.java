@@ -131,6 +131,25 @@ class AccessIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void productCannotBeReactivatedWhileItsPackagingUnitIsInactive() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var type = createCatalogue(admin, "types", Map.of("code", "tomato", "name", "Tomatoes", "active", true));
+			var product = createCatalogue(admin, "products", Map.of("code", "tomato_kg", "name", "Tomatoes",
+				"active", true, "produceTypeId", type, "baseUnitId", unit("KG")));
+			var crate = unit("CRATE");
+			assertThat(admin.mutate("PUT", "/api/catalogue/packaging", Map.of("productId", product,
+				"unitId", crate, "quantityInBaseUnit", 20)).statusCode()).isEqualTo(200);
+			assertThat(updateCatalogue(admin, "products", product, Map.of("code", "tomato_kg", "name", "Tomatoes",
+				"active", false, "produceTypeId", type, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(200);
+			assertThat(updateCatalogue(admin, "units", crate, Map.of("code", "CRATE", "name", "Crate",
+				"active", false, "dimension", "PACKAGING")).statusCode()).isEqualTo(200);
+			assertThat(updateCatalogue(admin, "products", product, Map.of("code", "tomato_kg", "name", "Tomatoes",
+				"active", true, "produceTypeId", type, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(409);
+		}
+	}
+
+	@Test
 	void catalogueUpdatesRequireTheVersionLoadedByTheEditor() throws Exception {
 		try (var admin = browser()) {
 			admin.adminLogin();

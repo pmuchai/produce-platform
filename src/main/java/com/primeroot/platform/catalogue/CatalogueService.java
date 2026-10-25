@@ -137,6 +137,9 @@ public class CatalogueService {
 		if (unit.getDimension() == UnitOfMeasure.Dimension.PACKAGING) {
 			throw badRequest("A product's base stock unit must measure mass or count, not variable packaging");
 		}
+		if (request.active() && id != null) {
+			units.findPackagingUnitsByProductIdForUpdate(id);
+		}
 		requireActive(request.active(), type, unit, variety, grade);
 		if (id != null) {
 			requireMatchingVersion(ifMatch, item.getVersion());
