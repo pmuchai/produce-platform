@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Reports')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a><aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('Reports', 'Administrative audit activity, not business performance')}"></header>
+  <form th:replace="~{layout :: dates(@{/ui/reports})}"></form>
+  <section class="panel"><h2>Audit activity</h2><p th:text="${eventCount} + ' events in this interval. Showing the most recent 100.'"></p>
+    <div class="table-scroll"><table><thead><tr><th>Time (UTC)</th><th>Action</th><th>Target</th><th>Actor</th></tr></thead><tbody>
+      <tr th:each="event : ${events}"><td th:text="${event.occurredAt}"></td><td th:text="${event.action}"></td>
+        <td><span th:text="${event.targetType}"></span><small th:text="${event.targetId}"></small></td>
+        <td th:text="${event.actorId == null ? 'System' : event.actorId}"></td></tr>
+      <tr th:if="${events.isEmpty()}"><td colspan="4">No activity in the selected interval.</td></tr>
+    </tbody></table></div>
+  </section>
+  <p class="hint">Sales, stock, branch and user performance reports will be added with their transaction modules.</p>
+</main>
+</body>
+</html>

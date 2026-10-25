@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:fragment="head(title)">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" th:content="${_csrf.token}">
+  <meta name="csrf-header" th:content="${_csrf.headerName}">
+  <meta name="app-base" th:content="@{/}">
+  <title th:text="${title} + ' | Produce Platform'">Produce Platform</title>
+  <link rel="stylesheet" th:href="@{/assets/app.css}">
+  <script defer th:src="@{/assets/app.js}"></script>
+</head>
+<body>
+<aside th:fragment="sidebar" class="sidebar">
+  <a class="brand" th:href="@{/home}"><span class="brand-mark">P</span>Produce Platform</a>
+  <p class="nav-caption">WORKSPACE</p>
+  <nav aria-label="Main navigation">
+    <a th:href="@{/home}" th:attr="aria-current=${page == 'dashboard' ? 'page' : null}">Dashboard</a>
+    <span aria-disabled="true">Sales <small>Coming later</small></span>
+    <span aria-disabled="true">Receivables / Stock entries <small>Coming later</small></span>
+    <span aria-disabled="true">Stock movement <small>Coming later</small></span>
+    <a th:if="${canAudit}" th:href="@{/ui/reports}" th:attr="aria-current=${page == 'reports' ? 'page' : null}">Reports</a>
+    <span th:unless="${canAudit}" aria-disabled="true">Reports <small>No access</small></span>
+    <a th:if="${canUsers}" th:href="@{/ui/users}" th:attr="aria-current=${page == 'users' ? 'page' : null}">User management</a>
+    <span th:unless="${canUsers}" aria-disabled="true">User management <small>No access</small></span>
+    <a th:href="@{/ui/configurations}" th:attr="aria-current=${page == 'configurations' ? 'page' : null}">Configurations</a>
+  </nav>
+  <div class="sidebar-foot">
+    <strong th:text="${current.staff.fullName}">Staff member</strong>
+    <p th:text="${current.staff.allBranches ? 'Business-wide' : 'Assigned active branches'}"></p>
+    <form th:action="@{/api/auth/logout}" method="post"><button class="signout" type="submit">Sign out</button></form>
+  </div>
+</aside>
+<header th:fragment="header(title, subtitle)" class="page-header">
+  <div><p class="eyebrow">PRODUCE PLATFORM</p><h1 th:text="${title}">Dashboard</h1><p class="muted" th:text="${subtitle}"></p></div>
+  <span class="badge">Phase 2 / Catalogue &amp; Units</span>
+</header>
+<form th:fragment="dates(action)" method="get" th:action="${action}" class="date-filter panel">
+  <label>From (UTC)<input type="date" name="start" required min="1970-01-01" th:max="${today}" th:value="${period.start}"></label>
+  <label>To (UTC)<input type="date" name="end" required min="1970-01-01" th:max="${today}" th:value="${period.end}"></label>
+  <button type="submit">Apply interval</button><a th:href="${action}">This week</a>
+  <p class="hint">Monday through today by default. Dates are inclusive; up to 366 days.</p>
+</form>
+<div th:fragment="notice" id="notice" role="status" aria-live="polite" hidden></div>
+<th:block th:fragment="identityFields">
+  <label>Code<input name="code" required pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,31}" maxlength="32"></label>
+  <label>Name<input name="name" required maxlength="120"></label>
+  <label class="check"><input type="checkbox" name="active" checked> Active</label>
+</th:block>
+<div th:fragment="saveButtons" class="form-actions">
+  <button type="submit">Save</button><button type="reset" class="secondary">Cancel / clear</button>
+  <span class="form-message" role="status" aria-live="polite"></span>
+</div>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Dashboard')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('Dashboard', 'Your business overview and operational workspace')}"></header>
+  <h2 th:text="'Welcome, ' + ${current.staff.fullName}">Welcome</h2>
+  <form th:replace="~{layout :: dates(@{/home})}"></form>
+  <section aria-label="Business trends" class="grid four">
+    <article class="card pending"><p class="eyebrow">SALES TREND</p><h2>Not available yet</h2><p>Sales transactions and prior-interval comparisons arrive with the Sales module.</p></article>
+    <article class="card pending"><p class="eyebrow">STOCK LEVELS</p><h2>Not available yet</h2><p>On-hand balances, receipts and low-stock alerts arrive with Inventory.</p></article>
+    <article class="card pending"><p class="eyebrow">BRANCH PERFORMANCE</p><h2>Not available yet</h2><p>Branch revenue and stock efficiency require sales and stock transactions.</p></article>
+    <article class="card pending"><p class="eyebrow">USER PERFORMANCE</p><h2>Not available yet</h2><p>Staff sales performance requires attributed transactions. Sign-ins are not a performance score.</p></article>
+  </section>
+  <div class="section-heading"><h2>Operational overview</h2><span class="muted">Current snapshots, not historical balances</span></div>
+  <section aria-label="Summary dashboards" class="grid">
+    <article class="card" th:if="${canCatalogue}"><h2>Product catalogue</h2>
+      <p class="metric" th:text="${catalogue.products.size()} + ' products'"></p>
+      <p th:text="${catalogue.types.size()} + ' produce types / ' + ${catalogue.units.size()} + ' units'"></p>
+      <a th:href="@{/ui/catalogue}">Open catalogue</a>
+    </article>
+    <article class="card" th:if="${canBranches}"><h2>Branches</h2>
+      <p class="metric" th:text="${branches.size()} + ' visible'"></p>
+      <p th:text="${branches.?[active].size()} + ' active branches within your access scope.'"></p>
+      <a th:href="@{/ui/branches}">View branches</a>
+    </article>
+    <article class="card" th:if="${canUsers}"><h2>Staff access</h2>
+      <p class="metric" th:text="${users.size()} + ' approved'"></p>
+      <p th:text="${users.?[active].size()} + ' active staff members across the business.'"></p>
+      <a th:href="@{/ui/users}">View staff</a>
+    </article>
+    <article class="card" th:if="${canAudit}"><h2>Audit activity</h2>
+      <p class="metric" th:text="${auditCount} + ' events'"></p>
+      <p th:text="(${auditDelta >= 0} ? '+' : '') + ${auditDelta} + ' vs previous equal-length interval (' + ${previousCount} + ')'"></p>
+      <p class="hint">System activity in the selected dates, not sales or staff performance.</p>
+      <a th:href="@{/ui/reports(start=${period.start},end=${period.end})}">View activity report</a>
+    </article>
+    <article class="card" th:unless="${canCatalogue or canBranches or canUsers or canAudit}">
+      <h2>Your workspace is ready</h2><p>No summary dashboards are available for your current permissions and branch scope.</p>
+    </article>
+  </section>
+  <section class="panel"><h2>Your effective permissions</h2>
+    <ul class="tags"><li th:each="permission : ${current.permissions}" th:text="${permission}"></li>
+      <li th:if="${current.permissions.isEmpty()}">No business permissions assigned</li></ul>
+    <p class="hint">Job-function roles in Keycloak grant these capabilities. Data scope is enforced by the server.</p>
+  </section>
+</main>
+</body>
+</html>

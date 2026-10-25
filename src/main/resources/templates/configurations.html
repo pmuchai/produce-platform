@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Configurations')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a><aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('Configurations', 'Business master data and access foundations')}"></header>
+  <div class="grid">
+    <section class="card" th:if="${canCatalogue}"><h2>Catalogue and units</h2><p>Produce types, varieties, grades, product definitions and fixed packaging conversions.</p><a th:href="@{/ui/catalogue}">Manage catalogue</a></section>
+    <section class="card" th:if="${canBranches}"><h2>Branches</h2><p>View the branches within your authorized scope.</p><a th:href="@{/ui/branches}">View branches</a></section>
+    <section class="card"><h2>Roles and credentials</h2><p>Managed by your Keycloak administrator. The application does not store passwords or edit identity-provider roles.</p></section>
+    <section class="card" th:unless="${canCatalogue or canBranches}"><h2>No configuration access</h2><p>Ask your administrator for the appropriate view permissions.</p></section>
+  </div>
+</main>
+</body>
+</html>

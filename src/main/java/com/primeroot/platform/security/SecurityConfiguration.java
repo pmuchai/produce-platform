@@ -44,9 +44,10 @@ public class SecurityConfiguration {
 		http
 			.csrf(Customizer.withDefaults())
 			.authorizeHttpRequests(authorize -> authorize
-				.requestMatchers(HttpMethod.GET, "/", "/actuator/health", "/api/auth/csrf").permitAll()
+				.requestMatchers(HttpMethod.GET, "/", "/actuator/health", "/api/auth/csrf",
+					"/assets/app.css", "/assets/app.js").permitAll()
 				.requestMatchers("/oauth2/authorization/keycloak", "/login/oauth2/code/keycloak").permitAll()
-				.requestMatchers("/home", "/api/**").authenticated()
+				.requestMatchers("/home", "/ui/**", "/api/**").authenticated()
 				.anyRequest().denyAll())
 			.requestCache(cache -> cache.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
@@ -63,7 +64,7 @@ public class SecurityConfiguration {
 			.logout(config -> config.logoutUrl("/api/auth/logout").logoutSuccessHandler(logout))
 			.exceptionHandling(exceptions -> exceptions
 				.authenticationEntryPoint((request, response, exception) -> {
-					if ("/home".equals(request.getServletPath())) {
+					if ("/home".equals(request.getServletPath()) || request.getServletPath().startsWith("/ui/")) {
 						response.sendRedirect(request.getContextPath() + "/oauth2/authorization/keycloak");
 					}
 					else {

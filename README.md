@@ -2,7 +2,8 @@
 
 A modular fresh-produce platform for branch operations, inventory, sales and
 spoilage control. Phase 0 provides the backend foundation; Phase 1 provides
-Branches and Access, with a server-rendered welcome dashboard.
+Branches and Access. Phase 2 adds Catalogue and Units, maintenance screens and
+a shared, permission-aware workspace.
 
 ## Requirements
 
@@ -29,6 +30,8 @@ The application implements these capabilities:
 | `USER_VIEW` | List approved staff; business-wide scope required |
 | `USER_MANAGE` | Approve/update/deactivate staff and assign local branch access; business-wide scope required |
 | `AUDIT_VIEW` | Read the latest 100 administrative audit events; business-wide scope required |
+| `CATALOGUE_VIEW` | View the shared product catalogue and calculate unit conversions |
+| `CATALOGUE_MANAGE` | Maintain catalogue definitions and fixed packaging conversions; business-wide scope required |
 
 Permissions are independent: managing does not implicitly grant viewing.
 Only these exact permission codes in the validated ID token's `app_roles`
@@ -67,8 +70,8 @@ For local development, start Keycloak on port 8081 and create:
 3. Exact valid redirect URI
    `http://localhost:8080/login/oauth2/code/keycloak` and exact valid post-logout
    redirect URI `http://localhost:8080/`. Do not use wildcards.
-4. The five client permission roles listed above. Create a composite `ADMIN`
-   role containing all five. Create other job-function composites from the
+4. The seven client permission roles listed above. Create a composite `ADMIN`
+   role containing all seven. Create other job-function composites from the
    relevant permissions and assign them to staff.
 5. A **User Client Role** protocol mapper for client `produce-platform`, claim
    `app_roles`, JSON type `String`, multivalued, included in the **ID token**.
@@ -77,8 +80,16 @@ For local development, start Keycloak on port 8081 and create:
    If Full Scope Allowed is disabled, explicitly map the required roles.
 6. A test staff user with a permanent Keycloak credential and the composite
    `ADMIN` assignment. Copy that user's **ID**, not a role ID or client ID.
-   Use Keycloak's token evaluation to check that `app_roles` includes the five
+   Use Keycloak's token evaluation to check that `app_roles` includes the seven
    effective permission codes.
+
+**Upgrading from Phase 1:** add `CATALOGUE_VIEW` and `CATALOGUE_MANAGE` client
+roles to the ADMIN composite and appropriate client role scope mappings.
+Existing ADMIN assignments do not automatically acquire new capabilities just
+because the application adds permission codes. Sign out and sign back in to
+obtain the updated ID-token claims. Catalogue readers need only
+`CATALOGUE_VIEW`; editing screens require that view permission plus
+`CATALOGUE_MANAGE` and local business-wide scope.
 
 Browser redirects need no permissive CORS configuration. No application CORS
 policy or wildcard Web Origins is needed for this same-origin backend.
@@ -190,15 +201,98 @@ to the identity provider.
 | PUT | `/api/users/{id}` | `USER_MANAGE` and global scope; requires the current `If-Match` ETag |
 | GET | `/api/audit-events` | `AUDIT_VIEW` and global scope; latest 100 events |
 
-The welcome page shows visible/active branch totals with `BRANCH_VIEW`, approved/
-active staff totals with global `USER_VIEW`, and the number of recent audit
-events (up to 100) with global `AUDIT_VIEW`. It uses the same authorized services
+The left sidebar provides Dashboard, Sales, Receivables / Stock entries,
+Stock movement, Reports, User management and Configurations. Future modules
+are visibly unavailable rather than linking to nonfunctional pages.
+Configurations links to the catalogue and authorized branch listings. User
+management currently lists approved staff; staff mutations remain available
+through the Phase 1 APIs. Catalogue maintenance has working create/edit forms.
+
+The dashboard defaults to Monday through today in **UTC**, with inclusive
+start/end date controls (maximum 366 days, no future dates). Global `AUDIT_VIEW`
+shows the actual number of audit events in that interval and the absolute
+change against the preceding equal-length interval. Counts are not capped at
+100; the report shows the most recent 100 matching events and the total count.
+Sign-ins and administrative activity are explicitly not staff performance.
+Sales trends, stock balances, branch performance and user performance are
+labelled as unavailable until the corresponding transaction modules exist;
+no illustrative values or zero balances are presented as real business data.
+
+Visible/active branch totals with `BRANCH_VIEW`, approved/active staff totals
+with global `USER_VIEW`, and catalogue totals with `CATALOGUE_VIEW` are labelled
+as **current snapshots**, not historical balances. Date filters do not
+pretend to reconstruct past activation or access state.
+The UI uses the same authorized services
 as the APIs, not role-name checks or merely hidden client-side widgets. Users
 without eligible view permissions see an explicit empty state. Composite roles
 control these summaries through their effective permission claims; management
-permissions alone do not grant summary viewing. Detail links currently open
-the JSON APIs. Sales, inventory and finance dashboards await those modules.
+permissions alone do not grant summary viewing.
 The page includes CSRF-protected sign-out and does not expose tokens.
+
+## Phase 2: Catalogue and Units
+
+Open **Configurations > Catalogue and units** (`/ui/catalogue`).
+Create a produce type first (for example, Tomatoes), optional varieties/grades
+belonging to that type, then a product with a unique code and a base stock unit.
+Search filters the catalogue tables. Editors support creation, update and
+deactivation, show server validation errors, and preserve inputs after failure.
+Names and codes are rendered as escaped text. No frontend build tool or
+external CDN is needed; Thymeleaf renders HTML and local CSS/JavaScript
+provides form submissions and the conversion calculator. JavaScript is
+required for mutations; tables remain readable without it.
+
+| Definition | Rules |
+| --- | --- |
+| Produce type | Configurable code/name; no hard-coded produce enum |
+| Variety / grade | Configurable within one produce type; a product must reference the correct kind and matching type |
+| Product | Unique normalized code, name, type, optional variety/grade and immutable base stock unit |
+| Mass unit | Factor relative to kilograms; KG = 1 and G = 0.001 |
+| Count unit | Factor relative to pieces; PIECE = 1 |
+| Packaging unit | No universal mass/count factor; CRATE and BAG are seeded without assumed weight |
+| Fixed product packaging | Explicit positive base-stock quantity per one package, unique per product/unit |
+
+Only mass or count units may be product base units. Unit dimensions and
+canonical factors cannot be changed after creation; create a new unit instead.
+Cross-dimension conversions (pieces to kilograms, for example) are rejected.
+A crate conversion must be explicitly defined for each product; there is no
+global crate weight. Fixed packaging is for standardized packs only. Variable
+delivery weights will be recorded as measured quantities by Inventory.
+The calculator returns the product's base stock unit, uses decimal arithmetic
+and rounds half up to six decimal places. It does not record a stock movement.
+Updating a packaging definition changes future calculations; inventory
+transactions must snapshot their applied conversion when that module is built.
+
+Active definitions require active dependencies. A type, variety, grade or unit
+in use by active dependants cannot be deactivated until those dependants are
+deactivated. Classifications referenced by products cannot change kind/type.
+Catalogue changes and their audit events commit together. No delete endpoints
+are provided. The shared catalogue is business-wide; reading it does not grant
+access to any branch's stock or sales.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/catalogue` | Types, classifications, units, products and fixed packaging definitions |
+| POST | `/api/catalogue/types` | Create a produce type (`code`, `name`, `active`) |
+| PUT | `/api/catalogue/types/{id}` | Update a produce type |
+| POST / PUT | `/api/catalogue/classifications` / `/{id}` | Code, name, active, `produceTypeId`, `kind` (`VARIETY` or `GRADE`) |
+| POST / PUT | `/api/catalogue/units` / `/{id}` | Code, name, active, `dimension` (`MASS`, `COUNT`, `PACKAGING`), `baseFactor` (null for packaging) |
+| POST / PUT | `/api/catalogue/products` / `/{id}` | Code, name, active, `produceTypeId`, optional `varietyId`/`gradeId`, `baseUnitId` |
+| PUT | `/api/catalogue/packaging` | Upsert `productId`, `unitId`, `quantityInBaseUnit` |
+| POST | `/api/catalogue/convert` | Calculate `quantity` from `fromUnitId` for `productId`; requires view permission and CSRF |
+
+All mutations require CSRF. Catalogue writes require business-wide
+`CATALOGUE_MANAGE`; reading/calculating requires `CATALOGUE_VIEW`.
+Quantities/factors accept up to 13 integer digits and six fractional digits.
+Decimal factors and conversion results are serialized as strings to avoid
+losing precision when browser code loads and edits them.
+
+### Workspace routes
+
+`/home` is the date-filtered dashboard; `/ui/configurations` links to catalogue
+and branches; `/ui/catalogue` provides maintenance and conversion;
+`/ui/branches` and `/ui/users` are scoped read-only directories; `/ui/reports`
+is the date-filtered administrative audit report. Direct page/API access is
+authorized server-side, not just hidden in navigation.
 
 Branch creation/update uses:
 
@@ -264,7 +358,7 @@ are outside this phase.
 
 ## Database migrations and safety
 
-There is exactly one initial migration,
+The initial migration,
 `src\main\resources\db\migration\V1__branches_and_access.sql`, containing the
 complete current schema:
 
@@ -274,6 +368,13 @@ complete current schema:
 | `staff_users` | Unique local username and issuer/subject identity, approval, branch scope and session-security version; no password or role |
 | `user_branches` | Staff/branch assignments with foreign keys and a composite primary key |
 | `audit_events` | Actor, action, target and time; no credentials or tokens |
+
+`V2__catalogue_and_units.sql` adds `produce_types`, `product_classifications`,
+`units_of_measure`, `products` and `product_packaging` with foreign keys,
+uniqueness and positive-factor constraints. It seeds KG, G, PIECE, CRATE and
+BAG, but no sample produce/products or business transactions.
+V1 remains unchanged; V2 upgrades the deployed Phase 1 schema without replacing
+staff identities, branches or audit history.
 
 The uncommitted Phase 1 migrations were consolidated before deployment, after
 confirming the local PostgreSQL database had no applied migrations or business
@@ -304,7 +405,24 @@ authorization redirects, code exchange, client authentication, PKCE, state,
 nonce, signature, issuer/audience and token expiry. They also cover approved
 identities, permission mapping, branch isolation, CSRF, staff revocation,
 logout, validation, bootstrap safeguards, foreign keys and audit persistence.
+Phase 2 tests cover migration preservation, catalogue permissions, matching
+classifications, dependency deactivation, dimension safety, explicit packaging
+factors, catalogue templates and date-filtered dashboard/report boundaries.
 No live PostgreSQL/Keycloak instance or real credentials are needed.
+
+An opt-in headless Chrome/Chromium browser test exercises consecutive
+create/edit saves, table refreshes, exact packaging calculations, visible
+validation errors and mobile overflow. It uses the same local signed OIDC
+fixture, an isolated browser profile and the browser's built-in debugging
+protocol; no Selenium driver or browser download is required. Point
+`ui.browser` to your installed compatible Chromium executable:
+
+```powershell
+.\mvnw.cmd "-Dtest=CatalogueBrowserTests" "-Dui.browser=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" test
+```
+
+The browser test is skipped when that property is absent, keeping the normal
+test suite usable on machines without a browser.
 
 H2 runs in PostgreSQL compatibility mode; it is not a replacement for checking
 actual PostgreSQL startup and migrations. H2, test configuration and the OIDC
@@ -321,5 +439,5 @@ The automated OIDC fixture is not started by this command. H2 data disappears
 when the process exits, so bootstrap is needed for every new manual H2 process.
 No PostgreSQL credentials are required in this mode.
 
-Next modules: Catalogue and Units, then Inventory with early spoilage controls.
-Sales, payments, accounting, farm tracking and AI remain outside Phase 1.
+Next module: Inventory with early spoilage controls. Sales, payments,
+accounting, farm tracking and AI remain outside Phase 2.

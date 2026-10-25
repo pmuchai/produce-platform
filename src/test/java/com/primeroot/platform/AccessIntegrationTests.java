@@ -1,6 +1,9 @@
 package com.primeroot.platform;
 
 import java.net.URI;
+import java.net.http.HttpResponse;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,10 +31,241 @@ class AccessIntegrationTests extends OidcTestSupport {
 	@BeforeEach
 	void reset() {
 		jdbc.update("DELETE FROM audit_events");
+		jdbc.update("DELETE FROM product_packaging");
+		jdbc.update("DELETE FROM products");
+		jdbc.update("DELETE FROM product_classifications");
+		jdbc.update("DELETE FROM produce_types");
+		jdbc.update("DELETE FROM units_of_measure WHERE code NOT IN ('KG', 'G', 'PIECE', 'CRATE', 'BAG')");
+		jdbc.update("UPDATE units_of_measure SET active = TRUE");
 		jdbc.update("DELETE FROM user_branches");
 		jdbc.update("DELETE FROM staff_users");
 		jdbc.update("DELETE FROM branches");
 		staff.bootstrap("admin", "Platform Administrator", OidcTestProvider.ADMIN_SUBJECT);
+	}
+
+	@Test
+	void cataloguePagesRenderAndProductsConvertOnlyUsingCompatibleExplicitDefinitions() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var type = createCatalogue(admin, "types", Map.of("code", "tomato", "name", "Tomatoes", "active", true));
+			var grade = createCatalogue(admin, "classifications", Map.of("code", "tomato_a", "name", "Grade A",
+				"active", true, "produceTypeId", type, "kind", "GRADE"));
+			var product = createCatalogue(admin, "products", Map.of("code", "tomato_a_kg", "name", "Tomatoes Grade A",
+				"active", true, "produceTypeId", type, "gradeId", grade, "baseUnitId", unit("KG")));
+			var snapshot = admin.body(admin.get("/api/catalogue"));
+			assertThat(snapshot.get("products").size()).isEqualTo(1);
+			assertThat(snapshot.get("types").get(0).get("code").asText()).isEqualTo("TOMATO");
+			var grams = admin.mutate("POST", "/api/catalogue/convert", Map.of(
+				"productId", product, "fromUnitId", unit("G"), "quantity", "1250"));
+			assertThat(grams.statusCode()).isEqualTo(200);
+			assertThat(admin.body(grams).get("quantity").asText()).isEqualTo("1.250000");
+			assertThat(admin.mutate("POST", "/api/catalogue/convert", Map.of(
+				"productId", product, "fromUnitId", unit("PIECE"), "quantity", 2)).statusCode()).isEqualTo(400);
+			assertThat(admin.mutate("POST", "/api/catalogue/convert", Map.of(
+				"productId", product, "fromUnitId", unit("CRATE"), "quantity", 2)).statusCode()).isEqualTo(400);
+			assertThat(admin.mutate("PUT", "/api/catalogue/packaging", Map.of(
+				"productId", product, "unitId", unit("CRATE"), "quantityInBaseUnit", "20.5")).statusCode()).isEqualTo(200);
+			var crates = admin.mutate("POST", "/api/catalogue/convert", Map.of(
+				"productId", product, "fromUnitId", unit("CRATE"), "quantity", 2));
+			assertThat(admin.body(crates).get("quantity").asText()).isEqualTo("41.000000");
+			assertThat(updateCatalogue(admin, "packaging", null, Map.of(
+				"productId", product, "unitId", unit("CRATE"), "quantityInBaseUnit", 25)).statusCode()).isEqualTo(200);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_packaging", Integer.class)).isEqualTo(1);
+			var cataloguePage = admin.get("/ui/catalogue");
+			assertThat(cataloguePage.statusCode()).isEqualTo(200);
+			assertThat(cataloguePage.body()).contains("Tomatoes Grade A", "data-resource=\"products\"",
+				"data-resource=\"units\"", "data-resource=\"packaging\"", "data-resource=\"convert\"",
+				"Main navigation", "Receivables / Stock entries", "Stock movement");
+			for (var page : List.of("/ui/configurations", "/ui/branches", "/ui/users", "/ui/reports")) {
+				assertThat(admin.get(page).statusCode()).as(page).isEqualTo(200);
+			}
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action LIKE 'CATALOGUE_%'",
+				Integer.class)).isEqualTo(5);
+		}
+	}
+
+	@Test
+	void catalogueRejectsWrongClassificationsInactiveDependenciesDuplicatesAndUnsafeUnitChanges() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var tomato = createCatalogue(admin, "types", Map.of("code", "tomato", "name", "Tomatoes", "active", true));
+			var onion = createCatalogue(admin, "types", Map.of("code", "onion", "name", "Onions", "active", true));
+			var grade = createCatalogue(admin, "classifications", Map.of("code", "onion_a", "name", "Grade A",
+				"active", true, "produceTypeId", onion, "kind", "GRADE"));
+			assertThat(admin.mutate("POST", "/api/catalogue/products", Map.of("code", "bad", "name", "Wrong grade",
+				"active", true, "produceTypeId", tomato, "gradeId", grade, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(400);
+			assertThat(admin.mutate("POST", "/api/catalogue/products", Map.of("code", "bad", "name", "Wrong kind",
+				"active", true, "produceTypeId", onion, "varietyId", grade, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(400);
+			assertThat(admin.mutate("POST", "/api/catalogue/products", Map.of("code", "bad", "name", "Packaging base",
+				"active", true, "produceTypeId", tomato, "baseUnitId", unit("CRATE"))).statusCode()).isEqualTo(400);
+			assertThat(admin.mutate("POST", "/api/catalogue/types", Map.of("code", "TOMATO", "name", "Duplicate",
+				"active", true)).statusCode()).isEqualTo(409);
+			assertThat(admin.mutate("POST", "/api/catalogue/units", Map.of("code", "bad_pack", "name", "Universal crate",
+				"active", true, "dimension", "PACKAGING", "baseFactor", 20)).statusCode()).isEqualTo(400);
+			assertThat(admin.mutate("POST", "/api/catalogue/units", Map.of("code", "bad_mass", "name", "No factor",
+				"active", true, "dimension", "MASS")).statusCode()).isEqualTo(400);
+			assertThat(updateCatalogue(admin, "units", unit("KG"), Map.of("code", "KG", "name", "Kilogram",
+				"active", true, "dimension", "MASS", "baseFactor", 2)).statusCode()).isEqualTo(409);
+			var product = createCatalogue(admin, "products", Map.of("code", "onion_a_kg", "name", "Onions A",
+				"active", true, "produceTypeId", onion, "gradeId", grade, "baseUnitId", unit("KG")));
+			assertThat(updateCatalogue(admin, "classifications", grade, Map.of("code", "onion_a",
+				"name", "Grade A", "active", true, "produceTypeId", tomato, "kind", "GRADE")).statusCode()).isEqualTo(409);
+			assertThat(updateCatalogue(admin, "types", onion, Map.of("code", "onion",
+				"name", "Onions", "active", false)).statusCode()).isEqualTo(409);
+			assertThat(updateCatalogue(admin, "classifications", grade, Map.of("code", "onion_a",
+				"name", "Grade A", "active", false, "produceTypeId", onion, "kind", "GRADE")).statusCode()).isEqualTo(409);
+			assertThat(updateCatalogue(admin, "units", unit("KG"), Map.of("code", "KG", "name", "Kilogram",
+				"active", false, "dimension", "MASS", "baseFactor", 1)).statusCode()).isEqualTo(409);
+			assertThat(updateCatalogue(admin, "products", product, Map.of("code", "onion_a_kg", "name", "Onions A",
+				"active", true, "produceTypeId", onion, "gradeId", grade, "baseUnitId", unit("G"))).statusCode()).isEqualTo(409);
+			assertThat(updateCatalogue(admin, "products", product, Map.of("code", "onion_a_kg", "name", "Onions A",
+				"active", false, "produceTypeId", onion, "gradeId", grade, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(200);
+			assertThat(updateCatalogue(admin, "classifications", grade, Map.of("code", "onion_a",
+				"name", "Grade A", "active", false, "produceTypeId", onion, "kind", "GRADE")).statusCode()).isEqualTo(200);
+			assertThat(updateCatalogue(admin, "products", product, Map.of("code", "onion_a_kg", "name", "Onions A",
+				"active", true, "produceTypeId", onion, "gradeId", grade, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(400);
+			assertThat(updateCatalogue(admin, "units", unit("G"), Map.of("code", "G", "name", "Gram",
+				"active", true, "dimension", "MASS", "baseFactor", "0.001")).statusCode()).isEqualTo(200);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM products", Integer.class)).isEqualTo(1);
+		}
+	}
+
+	@Test
+	void productCannotBeReactivatedWhileItsPackagingUnitIsInactive() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var type = createCatalogue(admin, "types", Map.of("code", "tomato", "name", "Tomatoes", "active", true));
+			var product = createCatalogue(admin, "products", Map.of("code", "tomato_kg", "name", "Tomatoes",
+				"active", true, "produceTypeId", type, "baseUnitId", unit("KG")));
+			var crate = unit("CRATE");
+			assertThat(admin.mutate("PUT", "/api/catalogue/packaging", Map.of("productId", product,
+				"unitId", crate, "quantityInBaseUnit", 20)).statusCode()).isEqualTo(200);
+			assertThat(updateCatalogue(admin, "products", product, Map.of("code", "tomato_kg", "name", "Tomatoes",
+				"active", false, "produceTypeId", type, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(200);
+			assertThat(updateCatalogue(admin, "units", crate, Map.of("code", "CRATE", "name", "Crate",
+				"active", false, "dimension", "PACKAGING")).statusCode()).isEqualTo(200);
+			assertThat(updateCatalogue(admin, "products", product, Map.of("code", "tomato_kg", "name", "Tomatoes",
+				"active", true, "produceTypeId", type, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(409);
+		}
+	}
+
+	@Test
+	void catalogueUpdatesRequireTheVersionLoadedByTheEditor() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var type = createCatalogue(admin, "types", Map.of("code", "tomato", "name", "Tomatoes", "active", true));
+			var update = Map.of("code", "tomato", "name", "Fresh Tomatoes", "active", true);
+			assertThat(admin.mutate("PUT", "/api/catalogue/types/" + type, update).statusCode()).isEqualTo(428);
+			var changed = admin.mutateWithIfMatch("PUT", "/api/catalogue/types/" + type, update, "\"0\"");
+			assertThat(changed.statusCode()).isEqualTo(200);
+			assertThat(changed.headers().firstValue("ETag")).contains("\"1\"");
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/catalogue/types/" + type, update, "\"0\"")
+				.statusCode()).isEqualTo(412);
+
+			var product = createCatalogue(admin, "products", Map.of("code", "tomato_product",
+				"name", "Tomato Product", "active", true, "produceTypeId", type, "baseUnitId", unit("KG")));
+			var createPackaging = Map.of("productId", product, "unitId", unit("CRATE"), "quantityInBaseUnit", 20);
+			assertThat(admin.mutate("PUT", "/api/catalogue/packaging", createPackaging).statusCode()).isEqualTo(200);
+			var snapshot = admin.body(admin.get("/api/catalogue"));
+			var packVersion = snapshot.get("packaging").get(0).get("version").asLong();
+			assertThat(admin.mutate("PUT", "/api/catalogue/packaging", Map.of(
+				"productId", product, "unitId", unit("CRATE"), "quantityInBaseUnit", 21)).statusCode()).isEqualTo(428);
+			var updatedPackaging = admin.mutateWithIfMatch("PUT", "/api/catalogue/packaging", Map.of(
+				"productId", product, "unitId", unit("CRATE"), "quantityInBaseUnit", 21), "\"" + packVersion + "\"");
+			assertThat(updatedPackaging.statusCode()).isEqualTo(200);
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/catalogue/packaging", Map.of(
+				"productId", product, "unitId", unit("CRATE"), "quantityInBaseUnit", 22),
+				"\"" + packVersion + "\"").statusCode()).isEqualTo(412);
+		}
+	}
+
+	@Test
+	void cataloguePermissionsAndGlobalScopeAreEnforcedIndependentlyOfJobFunctionNames() throws Exception {
+		try (var admin = browser(); var reader = browser(); var scoped = browser()) {
+			admin.adminLogin();
+			assertThat(reader.login(OidcTestProvider.ADMIN_SUBJECT, List.of("FINANCE", "CATALOGUE_VIEW"),
+				OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+			assertThat(reader.get("/ui/catalogue").body()).contains("Read-only catalogue")
+				.doesNotContain("data-resource=\"types\"", "data-resource=\"products\"");
+			assertThat(reader.mutate("POST", "/api/catalogue/types", Map.of("code", "blocked",
+				"name", "Blocked", "active", true)).statusCode()).isEqualTo(403);
+			assertThat(reader.get("/ui/users").statusCode()).isEqualTo(403);
+			var branch = createBranch(admin, "north");
+			assertThat(admin.mutate("POST", "/api/users", Map.of("username", "operator", "fullName", "Operator",
+				"subject", "operator-subject", "allBranches", false, "branchIds", Set.of(branch))).statusCode()).isEqualTo(201);
+			assertThat(scoped.login("operator-subject", List.of("CATALOGUE_VIEW", "CATALOGUE_MANAGE"),
+				OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+			assertThat(scoped.get("/api/catalogue").statusCode()).isEqualTo(200);
+			assertThat(scoped.mutate("POST", "/api/catalogue/types", Map.of("code", "blocked",
+				"name", "Blocked", "active", true)).statusCode()).isEqualTo(403);
+			assertThat(scoped.get("/ui/catalogue").body()).contains("Read-only catalogue");
+			assertThat(admin.login(OidcTestProvider.ADMIN_SUBJECT, List.of("ADMIN"),
+				OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+			assertThat(admin.get("/ui/catalogue").statusCode()).isEqualTo(403);
+			assertThat(admin.get("/api/catalogue").statusCode()).isEqualTo(403);
+		}
+	}
+
+	@Test
+	void dashboardDefaultsToWeeklyAndFiltersOnlyIntervalMetricsWithExclusiveEndBoundaries() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var today = LocalDate.now(ZoneOffset.UTC);
+			var start = today.minusDays(3);
+			var dayBefore = start.minusDays(1);
+			jdbc.update("DELETE FROM audit_events");
+			insertAudit("at-start", start.toString() + "T00:00:00Z");
+			insertAudit("at-end", today.toString() + "T23:59:59Z");
+			insertAudit("previous", dayBefore.toString() + "T23:59:59Z");
+			insertAudit("excluded", today.plusDays(1).toString() + "T00:00:00Z");
+			var selected = admin.get("/home?start=" + start + "&end=" + today);
+			assertThat(selected.statusCode()).isEqualTo(200);
+			assertThat(selected.body()).contains("2 events", "+1 vs previous equal-length interval (1)",
+				"not historical balances", "Sales transactions", "Not available yet");
+			var report = admin.get("/ui/reports?start=" + start + "&end=" + today);
+			assertThat(report.body()).contains("at-start", "at-end").doesNotContain(">previous<", ">excluded<");
+			assertThat(admin.get("/home").body()).contains("value=\"" +
+				today.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)) + "\"");
+			for (var query : List.of("?start=" + today, "?start=" + today + "&end=" + dayBefore,
+				"?start=" + start + "&end=" + today.plusDays(1), "?start=2020-01-01&end=" + today,
+				"?start=not-a-date&end=" + today)) {
+				assertThat(admin.get("/home" + query).statusCode()).as(query).isEqualTo(400);
+			}
+		}
+	}
+
+	private void insertAudit(String action, String timestamp) {
+		jdbc.update("INSERT INTO audit_events(id, action, target_type, target_id, occurred_at) VALUES (?, ?, 'TEST', ?, ?)",
+			UUID.randomUUID(), action, UUID.randomUUID(), java.time.OffsetDateTime.parse(timestamp));
+	}
+
+	private String unit(String code) {
+		return jdbc.queryForObject("SELECT id FROM units_of_measure WHERE code = ?", UUID.class, code).toString();
+	}
+
+	private String createCatalogue(Browser admin, String resource, Object request) throws Exception {
+		var response = admin.mutate("POST", "/api/catalogue/" + resource, request);
+		assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(201);
+		return admin.body(response).get("id").asText();
+	}
+
+	private HttpResponse<String> updateCatalogue(Browser admin, String resource, String id, Object request)
+			throws Exception {
+		var snapshot = admin.body(admin.get("/api/catalogue"));
+		var items = snapshot.get(resource);
+		String version = null;
+		for (var item : items) {
+			if (resource.equals("packaging")
+					? item.get("productId").asText().equals(((Map<?, ?>) request).get("productId"))
+						&& item.get("unitId").asText().equals(((Map<?, ?>) request).get("unitId"))
+					: item.get("id").asText().equals(id)) {
+				version = "\"" + item.get("version").asLong() + "\"";
+				break;
+			}
+		}
+		var path = resource.equals("packaging") ? "/api/catalogue/packaging"
+			: "/api/catalogue/" + resource + "/" + id;
+		return admin.mutateWithIfMatch("PUT", path, request, version);
 	}
 
 	@Test
@@ -83,10 +317,10 @@ class AccessIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
-	void singleMigrationCreatesOnlyTheExternalIdentitySchemaAndEnforcesForeignKeys() {
+	void migrationsRetainExternalIdentitySchemaAndEnforceForeignKeys() {
 		assertThat(jdbc.queryForList(
 			"SELECT \"version\" FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", String.class))
-			.containsExactly("1");
+			.containsExactly("1", "2");
 		assertThat(jdbc.queryForList("SELECT table_name FROM information_schema.tables WHERE table_schema = 'PUBLIC'", String.class))
 			.contains("BRANCHES", "STAFF_USERS", "USER_BRANCHES", "AUDIT_EVENTS")
 			.doesNotContain("ROLES", "PERMISSIONS", "ROLE_PERMISSIONS");
@@ -195,13 +429,16 @@ class AccessIntegrationTests extends OidcTestSupport {
 
 	@Test
 	void expiredIdentityTokenRedirectsLandingPagesToSignIn() throws Exception {
-		try (var homeBrowser = browser(); var rootBrowser = browser()) {
+		try (var homeBrowser = browser(); var rootBrowser = browser(); var catalogueBrowser = browser()) {
 			assertThat(homeBrowser.login(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS,
 				OidcTestProvider.Fault.SHORT_LIVED).statusCode()).isEqualTo(200);
 			assertThat(rootBrowser.login(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS,
 				OidcTestProvider.Fault.SHORT_LIVED).statusCode()).isEqualTo(200);
+			assertThat(catalogueBrowser.login(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS,
+				OidcTestProvider.Fault.SHORT_LIVED).statusCode()).isEqualTo(200);
 			TimeUnit.SECONDS.sleep(4);
-			for (var response : List.of(homeBrowser.get("/home"), rootBrowser.get("/"))) {
+			for (var response : List.of(homeBrowser.get("/home"), rootBrowser.get("/"),
+					catalogueBrowser.get("/ui/catalogue"))) {
 				assertThat(response.statusCode()).isEqualTo(302);
 				assertThat(URI.create(response.headers().firstValue("Location").orElseThrow()).getPath())
 					.isEqualTo("/oauth2/authorization/keycloak");

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Branches')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a><aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('Branches', 'Branches visible within your assigned scope')}"></header>
+  <section class="panel"><div class="table-scroll"><table>
+    <thead><tr><th>Code</th><th>Name</th><th>Address</th><th>Status</th></tr></thead><tbody>
+    <tr th:each="branch : ${branches}"><td th:text="${branch.code}"></td><td th:text="${branch.name}"></td>
+      <td th:text="${branch.address}"></td><td th:text="${branch.active ? 'Active' : 'Inactive'}"></td></tr>
+    <tr th:if="${branches.isEmpty()}"><td colspan="4">No visible branches.</td></tr>
+  </tbody></table></div></section>
+</main>
+</body>
+</html>
