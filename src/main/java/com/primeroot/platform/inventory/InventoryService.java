@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -29,6 +30,7 @@ import com.primeroot.platform.catalogue.ProductRepository;
 import com.primeroot.platform.catalogue.UnitOfMeasure;
 import com.primeroot.platform.catalogue.UnitRepository;
 import com.primeroot.platform.inventory.InventoryDtos.Balance;
+import com.primeroot.platform.inventory.InventoryDtos.BatchPage;
 import com.primeroot.platform.inventory.InventoryDtos.BatchResponse;
 import com.primeroot.platform.inventory.InventoryDtos.BranchOption;
 import com.primeroot.platform.inventory.InventoryDtos.ChangeRequest;
@@ -191,17 +193,25 @@ public class InventoryService {
 		}
 		var ids = visible.stream().map(Branch::getId).filter(id -> branchId == null || id.equals(branchId)).toList();
 		var today = LocalDate.now(ZoneOffset.UTC);
-		var stock = ids.isEmpty() ? List.<StockBatch>of() : batches.findByBranchIdInOrderByReceivedDateAscCreatedAtAsc(ids);
+		var productEntities = products.findAllByOrderByCode();
+		Map<UUID, Product> productsById = new HashMap<>();
+		productEntities.forEach(product -> productsById.put(product.getId(), product));
+		Map<UUID, Branch> branchesById = new HashMap<>();
+		visible.forEach(branch -> branchesById.put(branch.getId(), branch));
 		var limits = ids.isEmpty() ? List.<StockThreshold>of() : thresholds.findByBranchIdIn(ids);
 		Map<Key, BigDecimal> current = new LinkedHashMap<>();
 		Map<Key, Product> knownProducts = new LinkedHashMap<>();
 		Map<Key, Branch> knownBranches = new LinkedHashMap<>();
 		Map<Key, StockThreshold> minimums = new HashMap<>();
-		for (var batch : stock) {
-			var key = new Key(batch.getBranch().getId(), batch.getProduct().getId());
-			current.merge(key, batch.getQuantity(), BigDecimal::add);
-			knownProducts.put(key, batch.getProduct());
-			knownBranches.put(key, batch.getBranch());
+		if (!ids.isEmpty()) {
+			for (var row : batches.currentBalances(ids)) {
+				var branch = branchesById.get((UUID) row[0]);
+				var product = productsById.get((UUID) row[1]);
+				var key = new Key(branch.getId(), product.getId());
+				current.put(key, (BigDecimal) row[2]);
+				knownProducts.put(key, product);
+				knownBranches.put(key, branch);
+			}
 		}
 		for (var limit : limits) {
 			var key = new Key(limit.getBranch().getId(), limit.getProduct().getId());
@@ -232,14 +242,32 @@ public class InventoryService {
 		balances.sort(Comparator.comparing(Balance::branch).thenComparing(Balance::product).thenComparing(Balance::productId));
 		var history = ids.isEmpty() ? Page.<StockMovement>empty()
 			: movements.history(ids, period.from(), period.until(), PageRequest.of(page, 100));
-		var batchResponses = stock.stream().map(batch -> BatchResponse.from(batch, today)).toList();
 		return new Snapshot(visible.stream().map(branch -> new BranchOption(branch.getId(), branch.getName(), branch.isActive())).toList(),
-			products.findAllByOrderByCode().stream().map(product -> new ProductOption(product.getId(), product.getCode(),
+			productEntities.stream().map(product -> new ProductOption(product.getId(), product.getCode(),
 				product.getName(), product.getBaseUnit().getCode(), product.isActive())).toList(),
 			units.findAllByOrderByCode().stream().filter(UnitOfMeasure::isActive)
 				.map(unit -> new UnitOption(unit.getId(), unit.getCode())).toList(),
-			batchResponses, balances, movementResponses(history.getContent()), history.getTotalElements(), page,
-			balances.stream().filter(Balance::lowStock).count(), batchResponses.stream().filter(BatchResponse::nearExpiry).count());
+			balances, movementResponses(history.getContent()), history.getTotalElements(), page,
+			ids.isEmpty() ? 0 : batches.lowStockCount(ids),
+			ids.isEmpty() ? 0 : batches.nearExpiryCount(ids, today.plusDays(7)));
+	}
+
+	public BatchPage batchPage(UUID branchId, String search, int page) {
+		var actor = access.requirePermission(Permission.STOCK_VIEW);
+		if (branchId != null) access.requireBranch(branchId);
+		if (page < 0 || page > 1_000_000) throw invalid("Page must be between 0 and 1000000");
+		if (search != null && search.length() > 120) throw invalid("Batch search must be at most 120 characters");
+		var visible = actor.isAllBranches() ? branches.findAllByOrderByCode() : branches.findAccessibleBranches(actor.getId());
+		if (branchId != null && visible.stream().noneMatch(branch -> branch.getId().equals(branchId))) {
+			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Branch not found");
+		}
+		var ids = visible.stream().map(Branch::getId).filter(id -> branchId == null || id.equals(branchId)).toList();
+		var term = search == null || search.isBlank() ? null : search.trim().toLowerCase(Locale.ROOT);
+		var pageable = PageRequest.of(page, 100);
+		var result = ids.isEmpty() ? Page.<StockBatch>empty(pageable) : batches.search(ids, branchId, term, pageable);
+		var today = LocalDate.now(ZoneOffset.UTC);
+		return new BatchPage(result.getContent().stream().map(batch -> BatchResponse.from(batch, today)).toList(),
+			result.getTotalElements(), page, term == null ? "" : term);
 	}
 
 	private Branch lockBranch(UUID id) {

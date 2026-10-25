@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 import com.primeroot.platform.inventory.InventoryDtos.ChangeRequest;
+import com.primeroot.platform.inventory.InventoryDtos.BatchPage;
 import com.primeroot.platform.inventory.InventoryDtos.OperationResponse;
 import com.primeroot.platform.inventory.InventoryDtos.ReceiptRequest;
 import com.primeroot.platform.inventory.InventoryDtos.ReverseRequest;
@@ -36,6 +37,12 @@ public class InventoryController {
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
 			@RequestParam(defaultValue = "0") int page) {
 		return inventory.snapshot(branchId, DashboardPeriod.resolve(start, end), page);
+	}
+
+	@GetMapping("/batches")
+	public BatchPage batches(@RequestParam(required = false) UUID branchId,
+			@RequestParam(required = false) String search, @RequestParam(defaultValue = "0") int page) {
+		return inventory.batchPage(branchId, search, page);
 	}
 
 	@PostMapping("/receipts")

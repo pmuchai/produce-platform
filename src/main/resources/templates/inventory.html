@@ -48,8 +48,15 @@
   <section class="panel"><h2>Stock balances</h2><div th:replace="~{stock-summary :: balances}"></div></section>
   <section id="stock-batches" class="panel"><h2>Current batches / expiry alerts</h2>
     <p class="hint" th:text="${inventory.nearExpiryCount} + ' batches have stock that is expired or due within seven days. These are current alerts, not historical alerts for the date filter.'"></p>
+    <p class="hint" th:text="${batchPage.totalElements} + ' matching batches. Search by lot or product; up to 100 per page.'"></p>
+    <form method="get" class="date-filter" th:action="@{${page == 'receipts' ? '/ui/stock-entries' : '/ui/stock'}}">
+      <input type="hidden" name="start" th:value="${period.start}"><input type="hidden" name="end" th:value="${period.end}">
+      <input type="hidden" name="branchId" th:value="${selectedBranch}">
+      <label>Search batches<input name="batchSearch" maxlength="120" th:value="${batchPage.search}"></label>
+      <button type="submit">Search</button>
+    </form>
     <div class="table-scroll"><table><thead><tr><th>Branch / product</th><th>Lot / received / expiry</th><th>Current base quantity</th><th>Receipt / conversion snapshot</th></tr></thead>
-      <tbody><tr th:each="batch : ${inventory.batches}">
+      <tbody><tr th:each="batch : ${batchPage.batches}">
         <td><strong th:text="${batch.product}"></strong><small th:text="${batch.branch}"></small></td>
         <td><span th:text="${batch.lotCode}"></span><small th:text="'Received ' + ${batch.receivedDate}"></small>
           <small th:text="${batch.expiryDate == null ? 'No expiry recorded' : 'Expiry / best-before ' + batch.expiryDate}"></small>
@@ -58,14 +65,18 @@
         <td><span th:text="${batch.inputQuantity} + ' ' + ${batch.inputUnit} + ' = ' + ${batch.receivedQuantity} + ' ' + ${batch.baseUnit}"></span>
           <small th:text="${batch.measured ? 'Actual measured quantity' : 'Saved factor: ' + batch.conversionNumerator + ' / ' + batch.conversionDenominator}"></small>
           <small th:text="${batch.source}"></small></td>
-      </tr><tr th:if="${inventory.batches.isEmpty()}"><td colspan="4">No batches received within this branch scope.</td></tr></tbody>
+      </tr><tr th:if="${batchPage.batches.isEmpty()}"><td colspan="4">No batches match this search in the selected branch scope.</td></tr></tbody>
     </table></div>
+    <nav class="tabs" aria-label="Batch pages">
+      <a th:if="${batchPage.page > 0}" th:href="@{${page == 'receipts' ? '/ui/stock-entries' : '/ui/stock'}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page},batchPage=${batchPage.page - 1},batchSearch=${batchPage.search})}">Previous batches</a>
+      <a th:if="${(batchPage.page + 1L) * 100 < batchPage.totalElements}" th:href="@{${page == 'receipts' ? '/ui/stock-entries' : '/ui/stock'}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${inventory.page},batchPage=${batchPage.page + 1},batchSearch=${batchPage.search})}">Next batches</a>
+    </nav>
   </section>
   <section th:if="${page == 'stock' and spoilStock}" class="panel"><h2>Record spoilage</h2>
     <form data-stock="spoilage" class="editor">
       <input name="branchId" type="hidden">
       <label>Batch<select name="batchId" data-batch-branch required><option value="">Choose batch</option>
-        <option th:each="batch : ${inventory.batches}" th:if="${batch.quantity.signum() > 0}" th:value="${batch.id}" th:attr="data-branch=${batch.branchId}" th:text="${batch.branch} + ' / ' + ${batch.product} + ' / ' + ${batch.lotCode} + ' (' + ${batch.quantity} + ' ' + ${batch.baseUnit} + ')'"></option></select></label>
+        <option th:each="batch : ${batchPage.batches}" th:if="${batch.quantity.signum() > 0}" th:value="${batch.id}" th:attr="data-branch=${batch.branchId}" th:text="${batch.branch} + ' / ' + ${batch.product} + ' / ' + ${batch.lotCode} + ' (' + ${batch.quantity} + ' ' + ${batch.baseUnit} + ')'"></option></select></label>
       <label>Quantity lost (base unit)<input name="quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
       <label>Reason<input name="reason" required maxlength="500"></label>
       <div th:replace="~{layout :: saveButtons}"></div>
@@ -76,7 +87,7 @@
     <form data-stock="adjustments" class="editor">
       <input name="branchId" type="hidden">
       <label>Batch<select name="batchId" data-batch-branch required><option value="">Choose batch</option>
-        <option th:each="batch : ${inventory.batches}" th:value="${batch.id}" th:attr="data-branch=${batch.branchId}" th:text="${batch.branch} + ' / ' + ${batch.product} + ' / ' + ${batch.lotCode} + ' (' + ${batch.baseUnit} + ')'"></option></select></label>
+        <option th:each="batch : ${batchPage.batches}" th:value="${batch.id}" th:attr="data-branch=${batch.branchId}" th:text="${batch.branch} + ' / ' + ${batch.product} + ' / ' + ${batch.lotCode} + ' (' + ${batch.baseUnit} + ')'"></option></select></label>
       <label>Signed quantity (base unit)<input name="quantity" type="number" min="-9999999999999.999999" max="9999999999999.999999" step="0.000001" required></label>
       <label>Reason<input name="reason" required maxlength="500"></label>
       <div th:replace="~{layout :: saveButtons}"></div>

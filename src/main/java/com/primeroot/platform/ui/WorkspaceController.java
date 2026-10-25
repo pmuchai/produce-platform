@@ -87,9 +87,11 @@ public class WorkspaceController {
 			@RequestParam(required = false) UUID branchId,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
-			@RequestParam(defaultValue = "0") int page) {
+			@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "0") int batchPage,
+			@RequestParam(required = false) String batchSearch) {
 		var period = DashboardPeriod.resolve(start, end);
 		model.addAttribute("inventory", inventory.snapshot(branchId, period, page));
+		model.addAttribute("batchPage", inventory.batchPage(branchId, batchSearch, batchPage));
 		workspace(model, request.getServletPath().endsWith("stock-entries") ? "receipts" : "stock");
 		model.addAttribute("period", period);
 		model.addAttribute("selectedBranch", branchId);

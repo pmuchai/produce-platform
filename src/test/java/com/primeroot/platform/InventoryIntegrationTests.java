@@ -65,10 +65,13 @@ class InventoryIntegrationTests extends OidcTestSupport {
 				packaging.headers().firstValue("ETag").orElseThrow()).statusCode()).isEqualTo(200);
 			var snapshot = admin.body(admin.get("/api/inventory"));
 			assertThat(snapshot.get("balances").get(0).get("current").asText()).isEqualTo("58.842590");
-			var fixed = find(snapshot.get("batches"), "lotCode", "FIXED");
+			assertThat(snapshot.has("batches")).isFalse();
+			var batchPage = admin.body(admin.get("/api/inventory/batches?search=FIXED"));
+			var fixed = find(batchPage.get("batches"), "lotCode", "FIXED");
+			var allBatches = admin.body(admin.get("/api/inventory/batches"));
 			assertThat(fixed.get("conversionNumerator").asText()).isEqualTo("20.123456");
 			assertThat(fixed.get("receivedQuantity").asText()).isEqualTo("40.246912");
-			assertThat(find(snapshot.get("batches"), "lotCode", "MEASURED").get("measured").asBoolean()).isTrue();
+			assertThat(find(allBatches.get("batches"), "lotCode", "MEASURED").get("measured").asBoolean()).isTrue();
 			var changed = new java.util.HashMap<>(request);
 			changed.put("source", "Farm");
 			changed.put("notes", "Manual, notes=Note");
@@ -80,6 +83,31 @@ class InventoryIntegrationTests extends OidcTestSupport {
 			}
 			assertThat(admin.get("/ui/stock-entries").body()).contains("40.246912 KG", "Actual measured quantity", "17.345678 KG");
 			assertLedgerMatchesBatches();
+		}
+	}
+
+	@Test
+	void batchDetailsAreSearchableAndPaginatedSeparatelyFromInventorySnapshots() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var product = product(admin);
+			for (int offset : List.of(0, 50, 100)) {
+				var end = Math.min(offset + 50, 101);
+				var lines = java.util.stream.IntStream.range(offset, end)
+					.mapToObj(index -> line(product, "KG", "1", "LOT-" + index)).toList();
+				assertThat(admin.mutate("POST", "/api/inventory/receipts", receipt(branch, lines)).statusCode()).isEqualTo(201);
+			}
+
+			var snapshot = admin.body(admin.get("/api/inventory"));
+			assertThat(snapshot.has("batches")).isFalse();
+			assertThat(snapshot.get("balances").get(0).get("current").asText()).isEqualTo("101.000000");
+			var firstPage = admin.body(admin.get("/api/inventory/batches?page=0"));
+			var secondPage = admin.body(admin.get("/api/inventory/batches?page=1"));
+			assertThat(firstPage.get("batches").size()).isEqualTo(100);
+			assertThat(firstPage.get("totalElements").asInt()).isEqualTo(101);
+			assertThat(secondPage.get("batches").size()).isEqualTo(1);
+			assertThat(admin.body(admin.get("/api/inventory/batches?search=lot-100")).get("batches").size()).isEqualTo(1);
 		}
 	}
 

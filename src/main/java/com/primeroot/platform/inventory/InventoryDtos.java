@@ -109,8 +109,11 @@ public final class InventoryDtos {
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal minimum, long thresholdVersion, boolean lowStock) {
 	}
 
+	public record BatchPage(List<BatchResponse> batches, long totalElements, int page, String search) {
+	}
+
 	public record Snapshot(List<BranchOption> branches, List<ProductOption> products, List<UnitOption> units,
-		List<BatchResponse> batches, List<Balance> balances, List<MovementResponse> movements,
+		List<Balance> balances, List<MovementResponse> movements,
 		long movementCount, int page, long lowStockCount, long nearExpiryCount) {
 	}
 }
