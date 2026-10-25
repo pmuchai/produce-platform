@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Sales receipt')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('Sales receipt', 'Original sale details and immutable batch allocations')}"></header>
+  <div th:replace="~{layout :: notice}"></div>
+  <article class="panel" id="sale-receipt">
+    <h2 th:text="${receipt.receiptNumber}"></h2>
+    <p><strong th:text="${receipt.status}"></strong> / <span th:text="${receipt.postedAt}"></span> (UTC)</p>
+    <p th:text="'Branch: ' + ${receipt.branch} + ' / Salesperson: ' + ${receipt.seller}"></p>
+    <p th:text="'Customer: ' + ${receipt.customer}"></p>
+    <p th:text="'Payment: ' + ${receipt.paymentMethod} + (${receipt.paymentReference != null} ? ' / ' + ${receipt.paymentReference} : '')"></p>
+    <p th:if="${receipt.notes != null}" th:text="${receipt.notes}"></p>
+    <div class="table-wrap"><table><thead><tr><th>Product</th><th>Sold quantity</th><th>Base quantity</th><th>Unit price</th><th>Total</th><th th:if="${canProfit}">COGS</th></tr></thead>
+      <tbody><tr th:each="line : ${receipt.lines}">
+        <td><strong th:text="${line.product}"></strong><ul class="hint"><li th:each="allocation : ${line.allocations}" th:text="${allocation.lotCode} + ': ' + ${allocation.quantity} + ' ' + ${line.baseUnit}"></li></ul></td>
+        <td th:text="${line.quantity} + ' ' + ${line.unit}"></td><td th:text="${line.baseQuantity} + ' ' + ${line.baseUnit}"></td>
+        <td th:text="${receipt.currency} + ' ' + ${line.unitPrice}"></td><td th:text="${receipt.currency} + ' ' + ${line.total}"></td>
+        <td th:if="${canProfit}" th:text="${receipt.currency} + ' ' + ${line.cost}"></td>
+      </tr></tbody></table></div>
+    <p class="metric" th:text="'Paid: ' + ${receipt.currency} + ' ' + ${receipt.total}"></p>
+    <p th:if="${canProfit}" th:text="'Original COGS: ' + ${receipt.cost} + ' / Original gross profit: ' + ${receipt.grossProfit} + ' ' + ${receipt.currency}"></p>
+    <p th:if="${receipt.status == 'VOIDED'}" class="error" th:text="'Voided: ' + ${receipt.voidedAt} + ' / ' + ${receipt.voidReason} + (${receipt.refundReference != null} ? ' / Refund: ' + ${receipt.refundReference} : '')"></p>
+    <p class="hint">Sales receipt, not a tax invoice. Gross profit excludes operating expenses, taxes and separately reported stock losses. Voided originals are retained; reports recognize the refund on the void date.</p>
+    <button type="button" id="print-receipt" class="secondary">Print receipt</button>
+    <a th:if="${createSale}" th:href="@{/ui/sales}">New sale</a>
+  </article>
+  <section th:if="${voidSale and receipt.status == 'PAID'}" class="panel">
+    <h2>Void entire sale</h2>
+    <p>Only use after all goods were physically returned and a full refund completed. This restores the exact original batches and costs. No money is sent by this application.</p>
+    <form id="sale-void-form" class="editor" th:attr="data-sale-id=${receipt.id}">
+      <label>Reason<textarea name="reason" maxlength="500" required></textarea></label>
+      <label>Completed refund reference<input name="refundReference" maxlength="120" th:required="${receipt.paymentMethod.name() != 'CASH'}"></label>
+      <label class="check"><input name="returnedAndRefunded" type="checkbox" required> All goods are returned and the full refund is completed.</label>
+      <div class="form-actions"><button type="submit">Void sale and restore stock</button><span class="form-message" role="status" aria-live="polite"></span></div>
+    </form>
+  </section>
+</main>
+</body>
+</html>

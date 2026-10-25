@@ -43,6 +43,21 @@ public final class AccessDtos {
 		@NotNull @Size(max = 100) Set<@NotNull UUID> branchIds) {
 	}
 
+	public record ApproveAccessRequest(
+		@NotBlank @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9._-]{2,63}") String username,
+		@NotBlank @Size(max = 120) String fullName,
+		@NotNull Boolean allBranches,
+		@NotNull @Size(max = 100) Set<@NotNull UUID> branchIds) {
+	}
+
+	public record AccessRequestResponse(UUID id, String issuer, String subject, String suggestedUsername,
+			String fullName, Instant createdAt) {
+		public static AccessRequestResponse from(StaffAccessRequest request) {
+			return new AccessRequestResponse(request.getId(), request.getIssuer(), request.getSubject(),
+				request.getSuggestedUsername(), request.getFullName(), request.getCreatedAt());
+		}
+	}
+
 	public record UserResponse(UUID id, String username, String fullName, String issuer, String subject,
 			boolean active, Set<UUID> branchIds, boolean allBranches, Instant createdAt, long version) {
 		public static UserResponse from(StaffUser user) {

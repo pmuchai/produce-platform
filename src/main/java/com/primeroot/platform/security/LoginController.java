@@ -7,6 +7,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 
 @Controller
 public class LoginController {
+	@GetMapping("/access-pending")
+	public String pending() {
+		return "access-pending";
+	}
+
 	@GetMapping({"/", "/login"})
 	public String login(@AuthenticationPrincipal OidcUser user) {
 		return user == null ? "redirect:/oauth2/authorization/keycloak" : "redirect:/home";

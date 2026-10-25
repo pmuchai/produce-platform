@@ -28,6 +28,8 @@ public class StockMovement {
 	private StockOperation.Kind kind;
 	@Column(nullable = false, precision = 19, scale = 6)
 	private BigDecimal quantity;
+	@Column(precision = 38, scale = 6)
+	private BigDecimal costChange;
 	@ManyToOne
 	@JoinColumn(name = "reversal_of", unique = true)
 	private StockMovement reversalOf;
@@ -42,8 +44,11 @@ public class StockMovement {
 		this.kind = kind;
 		this.quantity = quantity;
 		this.reversalOf = reversalOf;
+		costChange = kind == StockOperation.Kind.RECEIPT ? batch.getReceivedCost() : null;
 	}
 
+	void setCostChange(BigDecimal cost) { costChange = cost; }
+	public BigDecimal getCostChange() { return costChange; }
 	public UUID getId() { return id; }
 	public StockOperation getOperation() { return operation; }
 	public StockBatch getBatch() { return batch; }

@@ -31,6 +31,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 	@BeforeEach
 	void reset() {
 		jdbc.update("DELETE FROM audit_events");
+		jdbc.update("DELETE FROM staff_access_requests");
 		jdbc.update("DELETE FROM product_packaging");
 		jdbc.update("DELETE FROM products");
 		jdbc.update("DELETE FROM product_classifications");
@@ -81,6 +82,111 @@ class AccessIntegrationTests extends OidcTestSupport {
 			}
 			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action LIKE 'CATALOGUE_%'",
 				Integer.class)).isEqualTo(5);
+		}
+	}
+
+	@Test
+	void staffAssignmentWorkspaceRequiresGlobalDirectoryAndSeparateManagementAndBranchPermissions() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = createBranch(admin, "selling");
+			assertThat(admin.mutate("POST", "/api/users", Map.of(
+				"username", "sales.one", "fullName", "Salesperson One", "subject", "sales-one-subject",
+				"allBranches", false, "branchIds", Set.of(branch))).statusCode()).isEqualTo(201);
+			var page = admin.get("/ui/users");
+			assertThat(page.statusCode()).isEqualTo(200);
+			assertThat(page.body()).contains("id=\"staff-form\"", "data-edit-user", "sales.one",
+				"Single branch (required for sales)", "Keycloak user ID", branch, "<small>Branch selling</small>");
+			try (var reader = browser()) {
+				assertThat(reader.login(OidcTestProvider.ADMIN_SUBJECT, List.of("USER_VIEW"),
+					OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+				var readOnly = reader.get("/ui/users");
+				assertThat(readOnly.statusCode()).isEqualTo(200);
+				assertThat(readOnly.body()).contains("sales.one", "Read-only directory", branch)
+					.doesNotContain("id=\"staff-form\"", "data-edit-user");
+			}
+			try (var manager = browser()) {
+				assertThat(manager.login(OidcTestProvider.ADMIN_SUBJECT, List.of("USER_VIEW", "USER_MANAGE"),
+					OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+				var noBranches = manager.get("/ui/users");
+				assertThat(noBranches.statusCode()).isEqualTo(200);
+				assertThat(noBranches.body()).contains("BRANCH_VIEW is also required")
+					.doesNotContain("id=\"staff-form\"", "data-edit-user");
+			}
+			try (var seller = browser()) {
+				assertThat(seller.login("sales-one-subject", List.of("SALE_CREATE", "USER_VIEW", "USER_MANAGE", "BRANCH_VIEW"),
+					OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+				assertThat(seller.get("/ui/users").statusCode()).isEqualTo(403);
+			}
+		}
+	}
+
+	@Test
+	void branchWorkspaceSeparatesGlobalCreationScopedEditingAndReadOnlyAccess() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var north = createBranch(admin, "north");
+			var south = createBranch(admin, "south");
+			var page = admin.get("/ui/branches");
+			assertThat(page.statusCode()).isEqualTo(200);
+			assertThat(page.body()).contains("data-resource=\"branches\"", "data-create-allowed=\"true\"",
+				"Add branch", "data-edit=\"branches\"", north, south);
+			try (var reader = browser()) {
+				assertThat(reader.login(OidcTestProvider.ADMIN_SUBJECT, List.of("BRANCH_VIEW"),
+					OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+				var readOnly = reader.get("/ui/branches");
+				assertThat(readOnly.statusCode()).isEqualTo(200);
+				assertThat(readOnly.body()).contains("Read-only branches", "Branch north", "Branch south")
+					.doesNotContain("data-resource=\"branches\"", "data-edit=\"branches\"");
+			}
+			try (var managerWithoutView = browser()) {
+				assertThat(managerWithoutView.login(OidcTestProvider.ADMIN_SUBJECT, List.of("BRANCH_MANAGE"),
+					OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+				assertThat(managerWithoutView.get("/ui/branches").statusCode()).isEqualTo(403);
+			}
+			assertThat(admin.mutate("POST", "/api/users", Map.of("username", "north.manager",
+				"fullName", "North Manager", "subject", "north-manager-subject",
+				"allBranches", false, "branchIds", Set.of(north))).statusCode()).isEqualTo(201);
+			try (var manager = browser()) {
+				assertThat(manager.login("north-manager-subject", List.of("BRANCH_VIEW", "BRANCH_MANAGE"),
+					OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+				var scoped = manager.get("/ui/branches");
+				assertThat(scoped.statusCode()).isEqualTo(200);
+				assertThat(scoped.body()).contains("data-create-allowed=\"false\"", "data-edit=\"branches\"",
+					"Creating a new branch requires business-wide", north, "Branch north").doesNotContain(south, "Branch south");
+			}
+		}
+	}
+
+	@Test
+	void navigationParentsFollowEffectivePermissionsAndStaffScope() throws Exception {
+		record NavigationCase(boolean global, List<String> permissions, List<String> parents) { }
+		var cases = List.of(
+			new NavigationCase(false, List.of("SALE_CREATE"), List.of("dashboard", "sales", "reports")),
+			new NavigationCase(false, List.of("USER_VIEW"), List.of("dashboard")),
+			new NavigationCase(true, List.of("USER_VIEW"), List.of("dashboard", "users")),
+			new NavigationCase(true, List.of("CATALOGUE_VIEW"), List.of("dashboard", "configurations")),
+			new NavigationCase(true, List.of("AUDIT_VIEW"), List.of("dashboard", "reports")),
+			new NavigationCase(true, List.of(), List.of("dashboard")),
+			new NavigationCase(true, ALL_PERMISSIONS, List.of("dashboard", "stock", "reports", "users", "configurations")));
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = createBranch(admin, "sales");
+			assertThat(admin.mutate("POST", "/api/users", Map.of("username", "sales.one",
+				"fullName", "Salesperson One", "subject", "navigation-sales-subject",
+				"allBranches", false, "branchIds", Set.of(branch))).statusCode()).isEqualTo(201);
+			for (var scenario : cases) {
+				try (var session = browser()) {
+					assertThat(session.login(scenario.global() ? OidcTestProvider.ADMIN_SUBJECT : "navigation-sales-subject",
+						scenario.permissions(), OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+					var page = session.get("/home");
+					assertThat(page.statusCode()).isEqualTo(200);
+					var parents = java.util.regex.Pattern.compile("id=\"nav-([a-z]+)\"").matcher(page.body())
+						.results().map(match -> match.group(1)).toList();
+					assertThat(parents).as("global=%s, permissions=%s", scenario.global(), scenario.permissions())
+						.containsExactlyElementsOf(scenario.parents());
+				}
+			}
 		}
 	}
 
@@ -221,7 +327,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 			var selected = admin.get("/home?start=" + start + "&end=" + today);
 			assertThat(selected.statusCode()).isEqualTo(200);
 			assertThat(selected.body()).contains("2 events", "+1 vs previous equal-length interval (1)",
-				"not historical balances", "Sales transactions", "Not available yet");
+				"not historical balances", "Net sales revenue", "STAFF PERFORMANCE");
 			var report = admin.get("/ui/reports?start=" + start + "&end=" + today);
 			assertThat(report.body()).contains("at-start", "at-end").doesNotContain(">previous<", ">excluded<");
 			assertThat(admin.get("/home").body()).contains("value=\"" +
@@ -348,11 +454,14 @@ class AccessIntegrationTests extends OidcTestSupport {
 	void migrationsRetainExternalIdentitySchemaAndEnforceForeignKeys() {
 		assertThat(jdbc.queryForList(
 			"SELECT \"version\" FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", String.class))
-			.containsExactly("1", "2", "3", "4");
-		assertThat(jdbc.queryForList("SELECT table_name FROM information_schema.tables WHERE table_schema = 'PUBLIC'", String.class))
-			.contains("BRANCHES", "STAFF_USERS", "USER_BRANCHES", "AUDIT_EVENTS")
+			.containsExactly("1", "2", "3", "4", "5", "6");
+		assertThat(jdbc.queryForList(
+			"SELECT UPPER(table_name) FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA()", String.class))
+			.contains("BRANCHES", "STAFF_USERS", "USER_BRANCHES", "AUDIT_EVENTS", "STAFF_ACCESS_REQUESTS")
 			.doesNotContain("ROLES", "PERMISSIONS", "ROLE_PERMISSIONS");
-		assertThat(jdbc.queryForList("SELECT column_name FROM information_schema.columns WHERE table_name = 'STAFF_USERS'", String.class))
+		assertThat(jdbc.queryForList(
+			"SELECT UPPER(column_name) FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND LOWER(table_name) = 'staff_users'",
+			String.class))
 			.contains("ISSUER", "SUBJECT", "ALL_BRANCHES").doesNotContain("PASSWORD_HASH", "ROLE", "ROLE_ID");
 		assertThatThrownBy(() -> jdbc.update("INSERT INTO user_branches(user_id, branch_id) VALUES (?, ?)",
 			UUID.randomUUID(), UUID.randomUUID())).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
@@ -404,12 +513,103 @@ class AccessIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
-	void unknownSubjectsAreDeniedAndNeverAutomaticallyLinkedOrCreated() throws Exception {
+	void unknownSubjectsRequestApprovalWithoutGainingStaffAccess() throws Exception {
 		try (var browser = browser()) {
 			var response = browser.login("unknown-subject", ALL_PERMISSIONS, OidcTestProvider.Fault.NONE);
-			assertThat(response.statusCode()).isEqualTo(403);
+			assertThat(response.statusCode()).isEqualTo(200);
+			assertThat(response.body()).contains("Awaiting administrator approval");
 			assertThat(browser.get("/api/auth/me").statusCode()).isEqualTo(401);
+			assertThat(browser.get("/api/users/access-requests").statusCode()).isEqualTo(401);
 			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM staff_users", Integer.class)).isEqualTo(1);
+			assertThat(browser.login("unknown-subject", ALL_PERMISSIONS, OidcTestProvider.Fault.NONE).body())
+				.contains("Awaiting administrator approval");
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM staff_access_requests WHERE approved = FALSE", Integer.class)).isEqualTo(1);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action = 'STAFF_ACCESS_REQUESTED'", Integer.class)).isEqualTo(1);
+		}
+	}
+
+	@Test
+	void administratorsApproveCapturedIdentitiesWithoutTrustingSubmittedIdentityFields() throws Exception {
+		try (var applicant = browser(); var admin = browser(); var reader = browser()) {
+			assertThat(applicant.login("pending-sales-subject", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE).body())
+				.contains("Awaiting administrator approval");
+			admin.adminLogin();
+			var branch = createBranch(admin, "pending");
+			var pending = admin.body(admin.get("/api/users/access-requests"));
+			assertThat(pending.size()).isEqualTo(1);
+			var id = pending.get(0).get("id").asText();
+			var path = "/api/users/access-requests/" + id + "/approve";
+			var approval = Map.of("username", "new.sales", "fullName", "New Salesperson",
+				"allBranches", false, "branchIds", Set.of(branch), "subject", OidcTestProvider.ADMIN_SUBJECT,
+				"issuer", "https://not-the-trusted-issuer");
+			assertThat(applicant.mutate("POST", path, approval).statusCode()).isEqualTo(401);
+			assertThat(reader.login(OidcTestProvider.ADMIN_SUBJECT, List.of("USER_VIEW"), OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+			assertThat(reader.get("/api/users/access-requests").statusCode()).isEqualTo(200);
+			assertThat(reader.mutate("POST", path, approval).statusCode()).isEqualTo(403);
+			assertThat(admin.send("POST", URI.create("http://localhost:" + port + path), approval, null).statusCode()).isEqualTo(403);
+			assertThat(admin.mutate("POST", path, Map.of("username", "new.sales", "fullName", "New Salesperson",
+				"allBranches", false, "branchIds", Set.of())).statusCode()).isEqualTo(400);
+			assertThat(admin.body(admin.get("/api/users/access-requests")).size()).isEqualTo(1);
+			var approved = admin.mutate("POST", path, approval);
+			assertThat(approved.statusCode()).withFailMessage(approved.body()).isEqualTo(201);
+			assertThat(admin.body(approved).get("subject").asText()).isEqualTo("pending-sales-subject");
+			assertThat(admin.body(approved).get("issuer").asText()).isEqualTo(PROVIDER.issuer());
+			assertThat(admin.body(admin.get("/api/users/access-requests")).isEmpty()).isTrue();
+			assertThat(admin.mutate("POST", path, approval).statusCode()).isEqualTo(409);
+			assertThat(applicant.login("pending-sales-subject", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
+			assertThat(applicant.get("/api/sales/entry").statusCode()).isEqualTo(200);
+			assertThat(applicant.get("/api/users/access-requests").statusCode()).isEqualTo(403);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action = 'STAFF_ACCESS_APPROVED'", Integer.class)).isEqualTo(1);
+		}
+	}
+
+	@Test
+	void pendingRequestsDoNotBypassRevocationRoleEligibilityOrIssuerBoundaries() throws Exception {
+		try (var admin = browser(); var applicant = browser()) {
+			admin.adminLogin();
+			var disabled = admin.mutate("POST", "/api/users", Map.of("username", "disabled.staff", "fullName", "Disabled",
+				"subject", "disabled-subject", "allBranches", true, "branchIds", Set.of()));
+			var id = admin.body(disabled).get("id").asText();
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/users/" + id, Map.of("fullName", "Disabled",
+				"active", false, "allBranches", true, "branchIds", Set.of()), userEtag(admin, id)).statusCode()).isEqualTo(200);
+			assertThat(applicant.login("disabled-subject", ALL_PERMISSIONS, OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(403);
+			for (var roles : List.of(List.of(), List.of("ADMIN"))) {
+				assertThat(applicant.login("no-permissions-subject", roles, OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(403);
+			}
+			assertThat(applicant.login("bad-roles-subject", "SALE_CREATE", OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(403);
+			assertThat(applicant.login("bad-token-subject", ALL_PERMISSIONS, OidcTestProvider.Fault.SIGNATURE).statusCode()).isEqualTo(401);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM staff_access_requests", Integer.class)).isZero();
+			var foreign = UUID.randomUUID();
+			jdbc.update("INSERT INTO staff_access_requests(id, issuer, subject, suggested_username, full_name, approved, created_at) VALUES (?, ?, ?, ?, ?, FALSE, CURRENT_TIMESTAMP)",
+				foreign, "https://another-issuer", "foreign-subject", "foreign.user", "Foreign");
+			assertThat(admin.body(admin.get("/api/users/access-requests")).isEmpty()).isTrue();
+			assertThat(admin.mutate("POST", "/api/users/access-requests/" + foreign + "/approve", Map.of("username", "foreign.user",
+				"fullName", "Foreign", "allBranches", true, "branchIds", Set.of())).statusCode()).isEqualTo(409);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM staff_users", Integer.class)).isEqualTo(2);
+		}
+	}
+
+	@Test
+	void concurrentFirstLoginsCreateOnlyOneRequestAndManualApprovalCompletesIt() throws Exception {
+		try (var first = browser(); var second = browser(); var admin = browser()) {
+			var attempts = List.of(first, second).stream().map(session ->
+				java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+					try {
+						return session.login("concurrent-pending-subject", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+					}
+					catch (Exception exception) {
+						throw new java.util.concurrent.CompletionException(exception);
+					}
+				})).toList();
+			for (var attempt : attempts) {
+				assertThat(attempt.get(20, TimeUnit.SECONDS).body()).contains("Awaiting administrator approval");
+			}
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM staff_access_requests", Integer.class)).isEqualTo(1);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action = 'STAFF_ACCESS_REQUESTED'", Integer.class)).isEqualTo(1);
+			admin.adminLogin();
+			assertThat(admin.mutate("POST", "/api/users", Map.of("username", "manual.approval", "fullName", "Approved",
+				"subject", "concurrent-pending-subject", "allBranches", true, "branchIds", Set.of())).statusCode()).isEqualTo(201);
+			assertThat(admin.body(admin.get("/api/users/access-requests")).isEmpty()).isTrue();
 		}
 	}
 

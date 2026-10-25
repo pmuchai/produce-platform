@@ -13,6 +13,69 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class InventoryMigrationTests {
 	@Test
+	void v5InitializesOpeningCarryingValuesInTheirOwnCurrencyWithoutInventingSalesOrLegacyCosts() throws Exception {
+		try (var keeper = DriverManager.getConnection(
+				"jdbc:h2:mem:sales-upgrade-" + UUID.randomUUID() + ";MODE=PostgreSQL", "sa", "")) {
+			var source = new SingleConnectionDataSource(keeper, true);
+			Flyway.configure().dataSource(source).target("4").load().migrate();
+			var jdbc = new JdbcTemplate(source);
+			var branch = UUID.randomUUID();
+			var actor = UUID.randomUUID();
+			var type = UUID.randomUUID();
+			var product = UUID.randomUUID();
+			var receipt = UUID.randomUUID();
+			var correction = UUID.randomUUID();
+			jdbc.update("INSERT INTO branches(id, code, name, active, created_at) VALUES (?, 'MAIN', 'Main', TRUE, CURRENT_TIMESTAMP)", branch);
+			jdbc.update("""
+				INSERT INTO staff_users(id, username, full_name, issuer, subject, active, all_branches, created_at)
+				VALUES (?, 'admin', 'Admin', 'https://identity.example.test', 'existing-subject', TRUE, TRUE, CURRENT_TIMESTAMP)
+				""", actor);
+			jdbc.update("INSERT INTO produce_types(id, code, name, active, created_at) VALUES (?, 'ONION', 'Onions', TRUE, CURRENT_TIMESTAMP)", type);
+			jdbc.update("""
+				INSERT INTO products(id, code, name, active, created_at, produce_type_id, base_unit_id)
+				VALUES (?, 'ONION_KG', 'Onions', TRUE, CURRENT_TIMESTAMP, ?, '10000000-0000-0000-0000-000000000001')
+				""", product, type);
+			for (var operation : java.util.List.of(receipt, correction)) {
+				jdbc.update("INSERT INTO stock_operations(id, branch_id, actor_id, kind, request_hash, posted_at) VALUES (?, ?, ?, ?, 'legacy', CURRENT_TIMESTAMP)",
+					operation, branch, actor, operation.equals(receipt) ? "RECEIPT" : "ADJUSTMENT");
+			}
+			var openings = java.util.List.of(new Opening("KES", "5000", "1000001", "1", "0.00"),
+				new Opening("JPY", "1", "3", "2", "1"), new Opening("BHD", "0.001", "3", "1", "0.000"),
+				new Opening(null, null, "10", "3", null));
+			for (int index = 0; index < openings.size(); index++) {
+				var row = openings.get(index);
+				var batch = UUID.randomUUID();
+				jdbc.update("""
+					INSERT INTO stock_batches(id, operation_id, branch_id, product_id, lot_code, received_date,
+					    input_unit_id, input_quantity, received_quantity, measured, quantity, created_at,
+					    currency, purchase_unit_cost, received_cost)
+					VALUES (?, ?, ?, ?, ?, CURRENT_DATE, '10000000-0000-0000-0000-000000000004',
+					    1, ?, TRUE, ?, CURRENT_TIMESTAMP, ?, ?, ?)
+					""", batch, receipt, branch, product, "OPEN-" + index, new java.math.BigDecimal(row.received()),
+					new java.math.BigDecimal(row.remaining()), row.currency(), row.cost(), row.cost());
+				jdbc.update("INSERT INTO stock_movements(id, operation_id, batch_id, kind, quantity) VALUES (?, ?, ?, 'RECEIPT', ?)",
+					UUID.randomUUID(), receipt, batch, new java.math.BigDecimal(row.received()));
+				jdbc.update("INSERT INTO stock_movements(id, operation_id, batch_id, kind, quantity) VALUES (?, ?, ?, 'ADJUSTMENT', ?)",
+					UUID.randomUUID(), correction, batch, new java.math.BigDecimal(row.remaining()).subtract(new java.math.BigDecimal(row.received())));
+			}
+			Flyway.configure().dataSource(source).load().migrate();
+			for (int index = 0; index < openings.size(); index++) {
+				var cost = jdbc.queryForObject("SELECT remaining_cost FROM stock_batches WHERE lot_code = ?",
+					java.math.BigDecimal.class, "OPEN-" + index);
+				if (openings.get(index).expected() == null) assertThat(cost).isNull();
+				else assertThat(cost).isEqualByComparingTo(openings.get(index).expected());
+			}
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_movements", Integer.class)).isEqualTo(8);
+			for (var table : java.util.List.of("sales", "sale_lines", "sale_allocations")) {
+				assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class)).isZero();
+			}
+		}
+	}
+
+	private record Opening(String currency, String cost, String received, String remaining, String expected) {
+	}
+
+	@Test
 	void v3PreservesExistingCatalogueAndAccessWithoutInventingStock() throws Exception {
 		try (var keeper = DriverManager.getConnection(
 				"jdbc:h2:mem:inventory-upgrade-" + UUID.randomUUID() + ";MODE=PostgreSQL", "sa", "")) {

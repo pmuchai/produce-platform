@@ -3,10 +3,13 @@ package com.primeroot.platform.access;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import com.primeroot.platform.access.AccessDtos.CreateUserRequest;
+import com.primeroot.platform.access.AccessDtos.AccessRequestResponse;
+import com.primeroot.platform.access.AccessDtos.ApproveAccessRequest;
 import com.primeroot.platform.access.AccessDtos.CurrentUserResponse;
 import com.primeroot.platform.access.AccessDtos.UpdateUserRequest;
 import com.primeroot.platform.access.AccessDtos.UserResponse;
@@ -23,16 +26,18 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional(readOnly = true)
 public class StaffService {
 	private final StaffUserRepository users;
+	private final StaffAccessRequestRepository requests;
 	private final BranchRepository branches;
 	private final AccessService access;
 	private final AuditRepository audit;
 	private final Validator validator;
 	private final String issuer;
 
-	public StaffService(StaffUserRepository users, BranchRepository branches, AccessService access,
+	public StaffService(StaffUserRepository users, StaffAccessRequestRepository requests, BranchRepository branches, AccessService access,
 			AuditRepository audit, Validator validator,
 			@Value("${spring.security.oauth2.client.provider.keycloak.issuer-uri}") String issuer) {
 		this.users = users;
+		this.requests = requests;
 		this.branches = branches;
 		this.access = access;
 		this.audit = audit;
@@ -49,11 +54,32 @@ public class StaffService {
 		return users.findAllByOrderByUsername().stream().map(UserResponse::from).toList();
 	}
 
+	public List<AccessRequestResponse> pendingRequests() {
+		access.requireGlobalPermission(Permission.USER_VIEW);
+		return requests.findByIssuerAndApprovedFalseOrderByCreatedAtAsc(issuer).stream()
+			.map(AccessRequestResponse::from).toList();
+	}
+
+	@Transactional
+	public UserResponse approveRequest(UUID id, ApproveAccessRequest approval) {
+		access.requireGlobalPermission(Permission.USER_MANAGE);
+		var request = requests.lockById(id)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Access request not found"));
+		if (request.isApproved() || !issuer.equals(request.getIssuer())) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT,
+				"Access request is already approved or belongs to a different configured issuer");
+		}
+		return create(new CreateUserRequest(approval.username(), approval.fullName(), request.getSubject(),
+			approval.allBranches(), approval.branchIds()));
+	}
+
 	@Transactional
 	public UserResponse create(CreateUserRequest request) {
 		var actor = access.requireGlobalPermission(Permission.USER_MANAGE);
+		var pending = requests.findByIssuerAndSubject(issuer, request.subject());
 		var user = provision(request);
 		audit.save(new AuditEvent(actor.getId(), "STAFF_APPROVED", "USER", user.getId()));
+		completeRequest(pending, actor.getId());
 		return UserResponse.from(user);
 	}
 
@@ -98,9 +124,18 @@ public class StaffService {
 		if (!validator.validate(request).isEmpty()) {
 			throw new IllegalStateException("Bootstrap requires a valid local username, full name and Keycloak subject");
 		}
+		var pending = requests.findByIssuerAndSubject(issuer, subject);
 		var user = provision(request);
 		audit.save(new AuditEvent(null, "STAFF_BOOTSTRAPPED", "USER", user.getId()));
+		completeRequest(pending, null);
 		return true;
+	}
+
+	private void completeRequest(Optional<StaffAccessRequest> pending, UUID actorId) {
+		pending.filter(request -> !request.isApproved()).ifPresent(request -> {
+			request.approve();
+			audit.save(new AuditEvent(actorId, "STAFF_ACCESS_APPROVED", "ACCESS_REQUEST", request.getId()));
+		});
 	}
 
 	private StaffUser provision(CreateUserRequest request) {

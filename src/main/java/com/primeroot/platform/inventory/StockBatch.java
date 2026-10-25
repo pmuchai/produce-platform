@@ -56,6 +56,8 @@ public class StockBatch {
 	private BigDecimal purchaseUnitCost;
 	@Column(precision = 38, scale = 6, updatable = false)
 	private BigDecimal receivedCost;
+	@Column(precision = 38, scale = 6)
+	private BigDecimal remainingCost;
 	@Column(nullable = false, updatable = false)
 	private Instant createdAt = Instant.now();
 	@Version
@@ -83,9 +85,19 @@ public class StockBatch {
 		purchaseUnitCost = line.purchaseUnitCost();
 		receivedCost = inputQuantity.multiply(purchaseUnitCost)
 			.setScale(currency.getDefaultFractionDigits(), RoundingMode.HALF_UP);
+		remainingCost = receivedCost;
 	}
 
 	void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+	void setRemainingCost(BigDecimal cost) { remainingCost = cost; }
+	public BigDecimal getRemainingCost() {
+		return receivedCost == null || remainingCost == null ? null
+			: remainingCost.setScale(Currency.getInstance(currency).getDefaultFractionDigits(), RoundingMode.HALF_UP);
+	}
+	BigDecimal proportionalCost(BigDecimal quantity) {
+		return receivedCost == null ? null : receivedCost.multiply(quantity)
+			.divide(receivedQuantity, Currency.getInstance(currency).getDefaultFractionDigits(), RoundingMode.HALF_UP);
+	}
 	public UUID getId() { return id; }
 	public StockOperation getOperation() { return operation; }
 	public Branch getBranch() { return branch; }
