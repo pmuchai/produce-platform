@@ -38,4 +38,5 @@ abstract class CatalogueItem {
 	public String getName() { return name; }
 	public boolean isActive() { return active; }
 	public Instant getCreatedAt() { return createdAt; }
+	public long getVersion() { return version; }
 }

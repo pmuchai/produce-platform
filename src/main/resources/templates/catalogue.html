@@ -26,6 +26,7 @@
     <details th:if="${manageCatalogue}" id="products-editor"><summary>Add / edit product</summary>
       <form data-resource="products" class="editor">
         <input type="hidden" name="id">
+        <input type="hidden" name="version">
         <th:block th:replace="~{layout :: identityFields}"></th:block>
         <label>Produce type<select name="produceTypeId" required><option value="">Choose type</option><option th:each="item : ${catalogue.types}" th:value="${item.id}" th:text="${item.name + (item.active ? '' : ' (inactive)')}"></option></select></label>
         <label>Variety (optional)<select name="varietyId" data-nullable><option value="">None</option><option th:each="item : ${catalogue.classifications}" th:if="${item.kind.name() == 'VARIETY'}" th:value="${item.id}" th:attr="data-type=${item.produceTypeId}" th:text="${labels[item.produceTypeId] + ' / ' + item.name}"></option></select></label>
@@ -43,7 +44,7 @@
       <tr th:if="${catalogue.types.isEmpty()}"><td colspan="4">No produce types yet.</td></tr>
     </tbody></table></div>
     <details th:if="${manageCatalogue}" id="types-editor"><summary>Add / edit produce type</summary>
-      <form data-resource="types" class="editor"><input type="hidden" name="id">
+      <form data-resource="types" class="editor"><input type="hidden" name="id"><input type="hidden" name="version">
         <th:block th:replace="~{layout :: identityFields}"></th:block>
         <div th:replace="~{layout :: saveButtons}"></div>
       </form>
@@ -57,7 +58,7 @@
       <tr th:if="${catalogue.classifications.isEmpty()}"><td colspan="6">No varieties or grades yet.</td></tr>
     </tbody></table></div>
     <details th:if="${manageCatalogue}" id="classifications-editor"><summary>Add / edit variety or grade</summary>
-      <form data-resource="classifications" class="editor"><input type="hidden" name="id">
+      <form data-resource="classifications" class="editor"><input type="hidden" name="id"><input type="hidden" name="version">
         <th:block th:replace="~{layout :: identityFields}"></th:block>
         <label>Kind<select name="kind" required><option value="VARIETY">Variety</option><option value="GRADE">Grade</option></select></label>
         <label>Produce type<select name="produceTypeId" required><option value="">Choose type</option><option th:each="item : ${catalogue.types}" th:value="${item.id}" th:text="${item.name + (item.active ? '' : ' (inactive)')}"></option></select></label>
@@ -72,7 +73,7 @@
       <tr th:each="item : ${catalogue.units}" data-row><td th:text="${item.code}"></td><td th:text="${item.name}"></td><td th:text="${item.dimension}"></td><td th:text="${item.baseFactor == null ? 'Product-specific only' : item.baseFactor}"></td><td th:text="${item.active ? 'Active' : 'Inactive'}"></td><td th:if="${manageCatalogue}"><button type="button" class="secondary" data-edit="units" th:attr="data-id=${item.id}">Edit</button></td></tr>
     </tbody></table></div>
     <details th:if="${manageCatalogue}" id="units-editor"><summary>Add / edit unit</summary>
-      <form data-resource="units" class="editor"><input type="hidden" name="id">
+      <form data-resource="units" class="editor"><input type="hidden" name="id"><input type="hidden" name="version">
         <th:block th:replace="~{layout :: identityFields}"></th:block>
         <label>Dimension<select name="dimension" required><option value="MASS">Mass</option><option value="COUNT">Count</option><option value="PACKAGING">Packaging</option></select></label>
         <label>Canonical factor (blank for packaging)<input type="number" name="baseFactor" min="0.000001" max="9999999999999.999999" step="0.000001" data-nullable></label>
@@ -89,6 +90,7 @@
     </tbody></table></div>
     <details th:if="${manageCatalogue}" id="packaging-editor"><summary>Set product packaging conversion</summary>
       <form data-resource="packaging" class="editor">
+        <input type="hidden" name="version">
         <label>Product<select name="productId" required><option value="">Choose product</option><option th:each="item : ${catalogue.products}" th:if="${item.active}" th:value="${item.id}" th:text="${item.name + ' / base unit ' + labels[item.baseUnitId]}"></option></select></label>
         <label>Packaging unit<select name="unitId" required><option value="">Choose unit</option><option th:each="item : ${catalogue.units}" th:if="${item.active and item.dimension.name() == 'PACKAGING'}" th:value="${item.id}" th:text="${item.code}"></option></select></label>
         <label>Base units per one package<input name="quantityInBaseUnit" type="number" min="0.000001" step="0.000001" max="9999999999999.999999" required></label>

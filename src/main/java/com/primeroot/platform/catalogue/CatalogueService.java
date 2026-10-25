@@ -60,9 +60,12 @@ public class CatalogueService {
 	}
 
 	@Transactional
-	public TypeResponse saveType(UUID id, TypeRequest request) {
+	public TypeResponse saveType(UUID id, TypeRequest request, String ifMatch) {
 		var actor = access.requireGlobalPermission(Permission.CATALOGUE_MANAGE);
 		var item = id == null ? new ProduceType() : findForUpdate(types, id);
+		if (id != null) {
+			requireMatchingVersion(ifMatch, item.getVersion());
+		}
 		if (id != null && !request.active() && (classifications.existsByProduceTypeIdAndActiveTrue(id)
 				|| products.existsByProduceTypeIdAndActiveTrue(id))) {
 			throw conflict("Deactivate dependent varieties, grades and products first");
@@ -74,11 +77,14 @@ public class CatalogueService {
 	}
 
 	@Transactional
-	public ClassificationResponse saveClassification(UUID id, ClassificationRequest request) {
+	public ClassificationResponse saveClassification(UUID id, ClassificationRequest request, String ifMatch) {
 		var actor = access.requireGlobalPermission(Permission.CATALOGUE_MANAGE);
 		var type = findForUpdate(types, request.produceTypeId());
 		requireActive(request.active(), type);
 		var item = id == null ? new ProductClassification() : findForUpdate(classifications, id);
+		if (id != null) {
+			requireMatchingVersion(ifMatch, item.getVersion());
+		}
 		if (id != null && products.existsByVarietyIdOrGradeId(id, id)
 				&& (item.getKind() != request.kind() || !item.getProduceType().getId().equals(type.getId()))) {
 			throw conflict("A classification used by products cannot change kind or produce type");
@@ -95,13 +101,16 @@ public class CatalogueService {
 	}
 
 	@Transactional
-	public UnitResponse saveUnit(UUID id, UnitRequest request) {
+	public UnitResponse saveUnit(UUID id, UnitRequest request, String ifMatch) {
 		var actor = access.requireGlobalPermission(Permission.CATALOGUE_MANAGE);
 		if (request.dimension() == UnitOfMeasure.Dimension.PACKAGING
 				? request.baseFactor() != null : request.baseFactor() == null) {
 			throw badRequest("Mass/count units require a positive base factor; packaging units must not have one");
 		}
 		var item = id == null ? new UnitOfMeasure() : findForUpdate(units, id);
+		if (id != null) {
+			requireMatchingVersion(ifMatch, item.getVersion());
+		}
 		if (id != null && (item.getDimension() != request.dimension()
 				|| !equal(item.getBaseFactor(), request.baseFactor()))) {
 			throw conflict("Unit dimensions and factors are immutable; create a new unit instead");
@@ -118,7 +127,7 @@ public class CatalogueService {
 	}
 
 	@Transactional
-	public ProductResponse saveProduct(UUID id, ProductRequest request) {
+	public ProductResponse saveProduct(UUID id, ProductRequest request, String ifMatch) {
 		var actor = access.requireGlobalPermission(Permission.CATALOGUE_MANAGE);
 		var type = findForUpdate(types, request.produceTypeId());
 		var variety = classification(request.varietyId(), type, ProductClassification.Kind.VARIETY);
@@ -129,6 +138,9 @@ public class CatalogueService {
 			throw badRequest("A product's base stock unit must measure mass or count, not variable packaging");
 		}
 		requireActive(request.active(), type, unit, variety, grade);
+		if (id != null) {
+			requireMatchingVersion(ifMatch, item.getVersion());
+		}
 		if (id != null && !item.getBaseUnit().getId().equals(unit.getId())) {
 			throw conflict("A product's base stock unit is immutable; create a new product instead");
 		}
@@ -143,7 +155,7 @@ public class CatalogueService {
 	}
 
 	@Transactional
-	public PackagingResponse savePackaging(PackagingRequest request) {
+	public PackagingResponse savePackaging(PackagingRequest request, String ifMatch) {
 		var actor = access.requireGlobalPermission(Permission.CATALOGUE_MANAGE);
 		var product = findForUpdate(products, request.productId());
 		var unit = findForUpdate(units, request.unitId());
@@ -151,8 +163,11 @@ public class CatalogueService {
 		if (unit.getDimension() != UnitOfMeasure.Dimension.PACKAGING) {
 			throw badRequest("Only packaging units can have a product-specific conversion");
 		}
-		var item = packaging.findByProductIdAndUnitId(product.getId(), unit.getId())
-			.orElseGet(() -> new ProductPackaging(product, unit));
+		var existing = packaging.findByProductIdAndUnitId(product.getId(), unit.getId());
+		var item = existing.orElseGet(() -> new ProductPackaging(product, unit));
+		if (existing.isPresent()) {
+			requireMatchingVersion(ifMatch, item.getVersion());
+		}
 		var previousId = item.getId();
 		item.update(request.quantityInBaseUnit());
 		packaging.saveAndFlush(item);
@@ -240,5 +255,16 @@ public class CatalogueService {
 
 	private static ResponseStatusException conflict(String detail) {
 		return new ResponseStatusException(HttpStatus.CONFLICT, detail);
+	}
+
+	private static void requireMatchingVersion(String ifMatch, long version) {
+		if (ifMatch == null || ifMatch.isBlank()) {
+			throw new ResponseStatusException(HttpStatus.PRECONDITION_REQUIRED,
+				"An If-Match header is required");
+		}
+		if (!ifMatch.equals("\"" + version + "\"")) {
+			throw new ResponseStatusException(HttpStatus.PRECONDITION_FAILED,
+				"The catalogue record changed; reload it and try again");
+		}
 	}
 }

@@ -48,42 +48,44 @@ public final class CatalogueDtos {
 		@NotNull @Positive @Digits(integer = 13, fraction = 6) BigDecimal quantity) {
 	}
 
-	public record TypeResponse(UUID id, String code, String name, boolean active) {
+	public record TypeResponse(UUID id, String code, String name, boolean active, long version) {
 		static TypeResponse from(ProduceType item) {
-			return new TypeResponse(item.getId(), item.getCode(), item.getName(), item.isActive());
+			return new TypeResponse(item.getId(), item.getCode(), item.getName(), item.isActive(), item.getVersion());
 		}
 	}
 
 	public record ClassificationResponse(UUID id, String code, String name, boolean active,
-			UUID produceTypeId, ProductClassification.Kind kind) {
+			UUID produceTypeId, ProductClassification.Kind kind, long version) {
 		static ClassificationResponse from(ProductClassification item) {
 			return new ClassificationResponse(item.getId(), item.getCode(), item.getName(), item.isActive(),
-				item.getProduceType().getId(), item.getKind());
+				item.getProduceType().getId(), item.getKind(), item.getVersion());
 		}
 	}
 
 	public record UnitResponse(UUID id, String code, String name, boolean active,
-			UnitOfMeasure.Dimension dimension, @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal baseFactor) {
+			UnitOfMeasure.Dimension dimension, @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal baseFactor,
+			long version) {
 		static UnitResponse from(UnitOfMeasure item) {
 			return new UnitResponse(item.getId(), item.getCode(), item.getName(), item.isActive(),
-				item.getDimension(), item.getBaseFactor());
+				item.getDimension(), item.getBaseFactor(), item.getVersion());
 		}
 	}
 
 	public record ProductResponse(UUID id, String code, String name, boolean active,
-			UUID produceTypeId, UUID varietyId, UUID gradeId, UUID baseUnitId) {
+			UUID produceTypeId, UUID varietyId, UUID gradeId, UUID baseUnitId, long version) {
 		static ProductResponse from(Product item) {
 			return new ProductResponse(item.getId(), item.getCode(), item.getName(), item.isActive(),
 				item.getProduceType().getId(), item.getVariety() == null ? null : item.getVariety().getId(),
-				item.getGrade() == null ? null : item.getGrade().getId(), item.getBaseUnit().getId());
+				item.getGrade() == null ? null : item.getGrade().getId(), item.getBaseUnit().getId(),
+				item.getVersion());
 		}
 	}
 
 	public record PackagingResponse(UUID id, UUID productId, UUID unitId,
-			@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal quantityInBaseUnit) {
+			@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal quantityInBaseUnit, long version) {
 		static PackagingResponse from(ProductPackaging item) {
 			return new PackagingResponse(item.getId(), item.getProduct().getId(), item.getUnit().getId(),
-				item.getQuantityInBaseUnit());
+				item.getQuantityInBaseUnit(), item.getVersion());
 		}
 	}
 

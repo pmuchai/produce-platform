@@ -40,4 +40,5 @@ public class ProductPackaging {
 	public Product getProduct() { return product; }
 	public UnitOfMeasure getUnit() { return unit; }
 	public BigDecimal getQuantityInBaseUnit() { return quantityInBaseUnit; }
+	public long getVersion() { return version; }
 }

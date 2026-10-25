@@ -57,18 +57,20 @@
       const submit = form.querySelector('[type="submit"]');
       const data = {};
       for (const field of form.elements) {
-        if (!field.name || field.name === 'id') continue;
+        if (!field.name || field.name === 'id' || field.name === 'version') continue;
         data[field.name] = field.type === 'checkbox' ? field.checked
           : field.hasAttribute('data-nullable') && field.value === '' ? null : field.value;
       }
       const id = form.elements.namedItem('id')?.value;
+      const version = form.elements.namedItem('version')?.value;
       const method = resource === 'packaging' || id ? 'PUT' : 'POST';
       submit.disabled = true;
       message.className = 'form-message';
       message.textContent = 'Working...';
       try {
         const result = await request(`api/catalogue/${resource}${id ? '/' + encodeURIComponent(id) : ''}`, {
-          method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+          method, headers: {'Content-Type': 'application/json', ...(version ? {'If-Match': `"${version}"`} : {})},
+          body: JSON.stringify(data)
         });
         if (resource === 'convert') {
           message.textContent = `${result.quantity} ${result.unitCode}`;
@@ -90,6 +92,8 @@
     form.addEventListener('reset', () => {
       const id = form.elements.namedItem('id');
       if (id) id.value = '';
+      const version = form.elements.namedItem('version');
+      if (version) version.value = '';
       message.textContent = '';
       message.className = 'form-message';
     });

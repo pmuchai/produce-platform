@@ -17,12 +17,14 @@ import com.primeroot.platform.catalogue.CatalogueDtos.TypeResponse;
 import com.primeroot.platform.catalogue.CatalogueDtos.UnitRequest;
 import com.primeroot.platform.catalogue.CatalogueDtos.UnitResponse;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -40,47 +42,62 @@ public class CatalogueController {
 
 	@PostMapping("/types")
 	public ResponseEntity<TypeResponse> createType(@Valid @RequestBody TypeRequest request) {
-		return created(catalogue.saveType(null, request));
+		return created(catalogue.saveType(null, request, null));
 	}
 
 	@PutMapping("/types/{id}")
-	public TypeResponse updateType(@PathVariable UUID id, @Valid @RequestBody TypeRequest request) {
-		return catalogue.saveType(id, request);
+	public ResponseEntity<TypeResponse> updateType(@PathVariable UUID id,
+			@RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+			@Valid @RequestBody TypeRequest request) {
+		var item = catalogue.saveType(id, request, ifMatch);
+		return updated(item, item.version());
 	}
 
 	@PostMapping("/classifications")
 	public ResponseEntity<ClassificationResponse> createClassification(@Valid @RequestBody ClassificationRequest request) {
-		return created(catalogue.saveClassification(null, request));
+		return created(catalogue.saveClassification(null, request, null));
 	}
 
 	@PutMapping("/classifications/{id}")
-	public ClassificationResponse updateClassification(@PathVariable UUID id, @Valid @RequestBody ClassificationRequest request) {
-		return catalogue.saveClassification(id, request);
+	public ResponseEntity<ClassificationResponse> updateClassification(@PathVariable UUID id,
+			@RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+			@Valid @RequestBody ClassificationRequest request) {
+		var item = catalogue.saveClassification(id, request, ifMatch);
+		return updated(item, item.version());
 	}
 
 	@PostMapping("/units")
 	public ResponseEntity<UnitResponse> createUnit(@Valid @RequestBody UnitRequest request) {
-		return created(catalogue.saveUnit(null, request));
+		return created(catalogue.saveUnit(null, request, null));
 	}
 
 	@PutMapping("/units/{id}")
-	public UnitResponse updateUnit(@PathVariable UUID id, @Valid @RequestBody UnitRequest request) {
-		return catalogue.saveUnit(id, request);
+	public ResponseEntity<UnitResponse> updateUnit(@PathVariable UUID id,
+			@RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+			@Valid @RequestBody UnitRequest request) {
+		var item = catalogue.saveUnit(id, request, ifMatch);
+		return updated(item, item.version());
 	}
 
 	@PostMapping("/products")
 	public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody ProductRequest request) {
-		return created(catalogue.saveProduct(null, request));
+		return created(catalogue.saveProduct(null, request, null));
 	}
 
 	@PutMapping("/products/{id}")
-	public ProductResponse updateProduct(@PathVariable UUID id, @Valid @RequestBody ProductRequest request) {
-		return catalogue.saveProduct(id, request);
+	public ResponseEntity<ProductResponse> updateProduct(@PathVariable UUID id,
+			@RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+			@Valid @RequestBody ProductRequest request) {
+		var item = catalogue.saveProduct(id, request, ifMatch);
+		return updated(item, item.version());
 	}
 
 	@PutMapping("/packaging")
-	public PackagingResponse packaging(@Valid @RequestBody PackagingRequest request) {
-		return catalogue.savePackaging(request);
+	public ResponseEntity<PackagingResponse> packaging(
+			@RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+			@Valid @RequestBody PackagingRequest request) {
+		var item = catalogue.savePackaging(request, ifMatch);
+		return updated(item, item.version());
 	}
 
 	@PostMapping("/convert")
@@ -90,5 +107,13 @@ public class CatalogueController {
 
 	private static <T> ResponseEntity<T> created(T body) {
 		return ResponseEntity.created(URI.create("/api/catalogue")).body(body);
+	}
+
+	private static <T> ResponseEntity<T> updated(T body, long version) {
+		return ResponseEntity.ok().header(HttpHeaders.ETAG, etag(version)).body(body);
+	}
+
+	private static String etag(long version) {
+		return "\"" + version + "\"";
 	}
 }
