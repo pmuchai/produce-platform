@@ -16,7 +16,7 @@ public final class ExpenseDtos {
 	}
 
 	public record Create(@NotNull UUID requestId, @NotNull UUID branchId,
-		@NotNull @PastOrPresent LocalDate paidDate, @NotNull Expense.Category category,
+		@NotNull LocalDate paidDate, @NotNull Expense.Category category,
 		@NotBlank @Size(max = 500) String description, @Size(max = 120) String payee,
 		@NotNull @Positive @Digits(integer = 13, fraction = 6) BigDecimal amount,
 		@NotNull Sale.PaymentMethod paymentMethod, @Size(max = 120) String paymentReference) {
