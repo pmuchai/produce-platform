@@ -13,6 +13,7 @@ import com.primeroot.platform.catalogue.Product;
 import com.primeroot.platform.catalogue.UnitOfMeasure;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -27,7 +28,7 @@ public class StockBatch {
 	private UUID id;
 	@ManyToOne(optional = false)
 	private StockOperation operation;
-	@ManyToOne
+	@ManyToOne(fetch = FetchType.LAZY)
 	private StockBatch sourceBatch;
 	@ManyToOne(optional = false)
 	private Branch branch;
