@@ -12,12 +12,14 @@ public class StaffAccessRequestService {
 	private final StaffAccessRequestRepository requests;
 	private final StaffUserRepository users;
 	private final AuditRepository audit;
+	private final StaffIdentityLock identityLock;
 
 	public StaffAccessRequestService(StaffAccessRequestRepository requests, StaffUserRepository users,
-			AuditRepository audit) {
+			AuditRepository audit, StaffIdentityLock identityLock) {
 		this.requests = requests;
 		this.users = users;
 		this.audit = audit;
+		this.identityLock = identityLock;
 	}
 
 	// The pending request must survive the deliberately unsuccessful application login.
@@ -25,6 +27,7 @@ public class StaffAccessRequestService {
 	public void record(OidcUser identity) {
 		var issuer = identity.getIssuer().toString();
 		var subject = identity.getSubject();
+		identityLock.lock();
 		if (users.existsByIssuerAndSubject(issuer, subject)
 				|| requests.findByIssuerAndSubject(issuer, subject).isPresent()) return;
 		var request = requests.saveAndFlush(new StaffAccessRequest(issuer, subject,

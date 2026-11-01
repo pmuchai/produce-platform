@@ -8,8 +8,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import com.primeroot.platform.access.StaffIdentityLock;
 import com.primeroot.platform.access.StaffService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +20,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,6 +32,12 @@ class AccessIntegrationTests extends OidcTestSupport {
 
 	@Autowired
 	private StaffService staff;
+
+	@Autowired
+	private StaffIdentityLock identityLock;
+
+	@Autowired
+	private PlatformTransactionManager transactionManager;
 
 	@BeforeEach
 	void reset() {
@@ -82,6 +93,63 @@ class AccessIntegrationTests extends OidcTestSupport {
 			}
 			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action LIKE 'CATALOGUE_%'",
 				Integer.class)).isEqualTo(5);
+		}
+	}
+
+	@Test
+	void concurrentFirstLoginAndProvisioningCannotLeaveAnUnapprovedRequest() throws Exception {
+		try (var applicant = browser(); var admin = browser(); var executor = Executors.newFixedThreadPool(3)) {
+			admin.adminLogin();
+			var lockHeld = new CountDownLatch(1);
+			var releaseLock = new CountDownLatch(1);
+			var transaction = new TransactionTemplate(transactionManager);
+			var holder = executor.submit(() -> transaction.executeWithoutResult(status -> {
+				identityLock.lock();
+				lockHeld.countDown();
+				try {
+					if (!releaseLock.await(10, TimeUnit.SECONDS)) {
+						throw new IllegalStateException("Timed out waiting to release staff identity lock");
+					}
+				}
+				catch (InterruptedException exception) {
+					Thread.currentThread().interrupt();
+					throw new IllegalStateException(exception);
+				}
+			}));
+			assertThat(lockHeld.await(10, TimeUnit.SECONDS)).isTrue();
+			var login = executor.submit(() -> {
+				try {
+					return applicant.login("interleaved-subject", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+				}
+				catch (Exception exception) {
+					throw new java.util.concurrent.CompletionException(exception);
+				}
+			});
+			var provisioning = executor.submit(() -> {
+				try {
+					return admin.mutate("POST", "/api/users", Map.of("username", "interleaved",
+						"fullName", "Interleaved", "subject", "interleaved-subject",
+						"allBranches", true, "branchIds", Set.of()));
+				}
+				catch (Exception exception) {
+					throw new java.util.concurrent.CompletionException(exception);
+				}
+			});
+			try {
+				TimeUnit.MILLISECONDS.sleep(250);
+				assertThat(login.isDone()).isFalse();
+				assertThat(provisioning.isDone()).isFalse();
+			}
+			finally {
+				releaseLock.countDown();
+			}
+			holder.get(10, TimeUnit.SECONDS);
+			login.get(20, TimeUnit.SECONDS);
+			assertThat(provisioning.get(20, TimeUnit.SECONDS).statusCode()).isEqualTo(201);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM staff_access_requests WHERE subject = ? AND approved = FALSE",
+				Integer.class, "interleaved-subject")).isZero();
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM staff_users WHERE subject = ?",
+				Integer.class, "interleaved-subject")).isEqualTo(1);
 		}
 	}
 
@@ -454,10 +522,11 @@ class AccessIntegrationTests extends OidcTestSupport {
 	void migrationsRetainExternalIdentitySchemaAndEnforceForeignKeys() {
 		assertThat(jdbc.queryForList(
 			"SELECT \"version\" FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", String.class))
-			.containsExactly("1", "2", "3", "4", "5", "6");
+			.containsExactly("1", "2", "3", "4", "5", "6", "7");
 		assertThat(jdbc.queryForList(
 			"SELECT UPPER(table_name) FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA()", String.class))
-			.contains("BRANCHES", "STAFF_USERS", "USER_BRANCHES", "AUDIT_EVENTS", "STAFF_ACCESS_REQUESTS")
+			.contains("BRANCHES", "STAFF_USERS", "USER_BRANCHES", "AUDIT_EVENTS", "STAFF_ACCESS_REQUESTS",
+				"STAFF_IDENTITY_LOCK")
 			.doesNotContain("ROLES", "PERMISSIONS", "ROLE_PERMISSIONS");
 		assertThat(jdbc.queryForList(
 			"SELECT UPPER(column_name) FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND LOWER(table_name) = 'staff_users'",

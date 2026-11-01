@@ -30,17 +30,19 @@ public class StaffService {
 	private final BranchRepository branches;
 	private final AccessService access;
 	private final AuditRepository audit;
+	private final StaffIdentityLock identityLock;
 	private final Validator validator;
 	private final String issuer;
 
 	public StaffService(StaffUserRepository users, StaffAccessRequestRepository requests, BranchRepository branches, AccessService access,
-			AuditRepository audit, Validator validator,
+			AuditRepository audit, StaffIdentityLock identityLock, Validator validator,
 			@Value("${spring.security.oauth2.client.provider.keycloak.issuer-uri}") String issuer) {
 		this.users = users;
 		this.requests = requests;
 		this.branches = branches;
 		this.access = access;
 		this.audit = audit;
+		this.identityLock = identityLock;
 		this.validator = validator;
 		this.issuer = issuer;
 	}
@@ -63,6 +65,7 @@ public class StaffService {
 	@Transactional
 	public UserResponse approveRequest(UUID id, ApproveAccessRequest approval) {
 		access.requireGlobalPermission(Permission.USER_MANAGE);
+		identityLock.lock();
 		var request = requests.lockById(id)
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Access request not found"));
 		if (request.isApproved() || !issuer.equals(request.getIssuer())) {
@@ -76,6 +79,7 @@ public class StaffService {
 	@Transactional
 	public UserResponse create(CreateUserRequest request) {
 		var actor = access.requireGlobalPermission(Permission.USER_MANAGE);
+		identityLock.lock();
 		var pending = requests.findByIssuerAndSubject(issuer, request.subject());
 		var user = provision(request);
 		audit.save(new AuditEvent(actor.getId(), "STAFF_APPROVED", "USER", user.getId()));
@@ -113,6 +117,7 @@ public class StaffService {
 
 	@Transactional
 	public boolean bootstrap(String username, String fullName, String subject) {
+		identityLock.lock();
 		var existing = users.findByIssuerAndSubject(issuer, subject);
 		if (existing.isPresent()) {
 			if (!existing.get().isActive() || !existing.get().isAllBranches()) {
