@@ -27,10 +27,24 @@ public class StockBatch {
 	private UUID id;
 	@ManyToOne(optional = false)
 	private StockOperation operation;
+	@ManyToOne
+	private StockBatch sourceBatch;
 	@ManyToOne(optional = false)
 	private Branch branch;
 	@ManyToOne(optional = false)
 	private Product product;
+	@Column(length = 120, updatable = false)
+	private String productNameSnapshot;
+	@Column(length = 32, updatable = false)
+	private String productCodeSnapshot;
+	@Column(length = 120, updatable = false)
+	private String produceTypeSnapshot;
+	@Column(length = 120, updatable = false)
+	private String varietySnapshot;
+	@Column(length = 120, updatable = false)
+	private String gradeSnapshot;
+	@Column(length = 32, updatable = false)
+	private String baseUnitSnapshot;
 	@Column(nullable = false, length = 64)
 	private String lotCode;
 	@Column(nullable = false)
@@ -66,11 +80,45 @@ public class StockBatch {
 	protected StockBatch() {
 	}
 
+	StockBatch(StockOperation operation, StockBatch source, BigDecimal received, BigDecimal cost) {
+		this.operation = operation;
+		sourceBatch = source;
+		branch = operation.getBranch();
+		product = source.product;
+		productNameSnapshot = source.getProductNameSnapshot();
+		productCodeSnapshot = source.getProductCodeSnapshot();
+		produceTypeSnapshot = source.getProduceTypeSnapshot();
+		varietySnapshot = source.getVarietySnapshot();
+		gradeSnapshot = source.getGradeSnapshot();
+		baseUnitSnapshot = source.getBaseUnitSnapshot();
+		lotCode = source.lotCode;
+		receivedDate = source.receivedDate;
+		expiryDate = source.expiryDate;
+		// Arrival is a new base-unit batch, not a new purchase or packaging conversion.
+		inputUnit = product.getBaseUnit();
+		inputQuantity = received;
+		receivedQuantity = received;
+		quantity = received;
+		conversionNumerator = BigDecimal.ONE;
+		conversionDenominator = BigDecimal.ONE;
+		measured = false;
+		currency = cost == null ? null : source.currency;
+		purchaseUnitCost = cost == null ? null : cost.divide(received, 6, RoundingMode.HALF_UP);
+		receivedCost = cost;
+		remainingCost = cost;
+	}
+
 	StockBatch(StockOperation operation, InventoryDtos.ReceiptLine line, LocalDate receivedDate,
 			Conversion conversion, Currency currency) {
 		this.operation = operation;
 		branch = operation.getBranch();
 		product = conversion.product();
+		productNameSnapshot = product.getName();
+		productCodeSnapshot = product.getCode();
+		produceTypeSnapshot = product.getProduceType().getName();
+		varietySnapshot = product.getVariety() == null ? null : product.getVariety().getName();
+		gradeSnapshot = product.getGrade() == null ? null : product.getGrade().getName();
+		baseUnitSnapshot = product.getBaseUnit().getCode();
 		lotCode = line.lotCode().trim();
 		this.receivedDate = receivedDate;
 		expiryDate = line.expiryDate();
@@ -100,8 +148,15 @@ public class StockBatch {
 	}
 	public UUID getId() { return id; }
 	public StockOperation getOperation() { return operation; }
+	public StockBatch getSourceBatch() { return sourceBatch; }
 	public Branch getBranch() { return branch; }
 	public Product getProduct() { return product; }
+	public String getProductNameSnapshot() { return productNameSnapshot == null ? product.getName() : productNameSnapshot; }
+	public String getProductCodeSnapshot() { return productCodeSnapshot == null ? product.getCode() : productCodeSnapshot; }
+	public String getProduceTypeSnapshot() { return produceTypeSnapshot == null ? product.getProduceType().getName() : produceTypeSnapshot; }
+	public String getVarietySnapshot() { return varietySnapshot; }
+	public String getGradeSnapshot() { return gradeSnapshot; }
+	public String getBaseUnitSnapshot() { return baseUnitSnapshot == null ? product.getBaseUnit().getCode() : baseUnitSnapshot; }
 	public String getLotCode() { return lotCode; }
 	public LocalDate getReceivedDate() { return receivedDate; }
 	public LocalDate getExpiryDate() { return expiryDate; }

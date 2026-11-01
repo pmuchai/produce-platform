@@ -13,6 +13,92 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class InventoryMigrationTests {
 	@Test
+	void v8PreservesExistingLedgerAndEnforcesTransferRouteStateAndFinalAccounting() throws Exception {
+		try (var keeper = DriverManager.getConnection(
+				"jdbc:h2:mem:transfer-upgrade-" + UUID.randomUUID() + ";MODE=PostgreSQL", "sa", "")) {
+			var source = new SingleConnectionDataSource(keeper, true);
+			Flyway.configure().dataSource(source).target("7").load().migrate();
+			var jdbc = new JdbcTemplate(source);
+			var branch = UUID.randomUUID();
+			var destination = UUID.randomUUID();
+			var actor = UUID.randomUUID();
+			var type = UUID.randomUUID();
+			var product = UUID.randomUUID();
+			var receipt = UUID.randomUUID();
+			var batch = UUID.randomUUID();
+			for (var id : java.util.List.of(branch, destination)) {
+				jdbc.update("INSERT INTO branches(id, code, name, active, created_at) VALUES (?, ?, 'Branch', TRUE, CURRENT_TIMESTAMP)",
+					id, id.equals(branch) ? "SOURCE" : "DESTINATION");
+			}
+			jdbc.update("""
+				INSERT INTO staff_users(id, username, full_name, issuer, subject, active, all_branches, created_at)
+				VALUES (?, 'admin', 'Admin', 'https://identity.example.test', 'existing-subject', TRUE, TRUE, CURRENT_TIMESTAMP)
+				""", actor);
+			jdbc.update("INSERT INTO produce_types(id, code, name, active, created_at) VALUES (?, 'ONION', 'Onions', TRUE, CURRENT_TIMESTAMP)", type);
+			jdbc.update("""
+				INSERT INTO products(id, code, name, active, created_at, produce_type_id, base_unit_id)
+				VALUES (?, 'ONION_KG', 'Onions', TRUE, CURRENT_TIMESTAMP, ?, '10000000-0000-0000-0000-000000000001')
+				""", product, type);
+			jdbc.update("INSERT INTO stock_operations(id, branch_id, actor_id, kind, request_hash, posted_at) VALUES (?, ?, ?, 'RECEIPT', 'legacy', CURRENT_TIMESTAMP)",
+				receipt, branch, actor);
+			jdbc.update("""
+				INSERT INTO stock_batches(id, operation_id, branch_id, product_id, lot_code, received_date,
+					input_unit_id, input_quantity, received_quantity, conversion_numerator, conversion_denominator,
+					measured, quantity, created_at, currency, purchase_unit_cost, received_cost, remaining_cost)
+				VALUES (?, ?, ?, ?, 'LEGACY', CURRENT_DATE, '10000000-0000-0000-0000-000000000001',
+					10, 10, 1, 1, FALSE, 10, CURRENT_TIMESTAMP, 'KES', 2, 20, 20)
+				""", batch, receipt, branch, product);
+			jdbc.update("INSERT INTO stock_movements(id, operation_id, batch_id, kind, quantity, cost_change) VALUES (?, ?, ?, 'RECEIPT', 10, 20)",
+				UUID.randomUUID(), receipt, batch);
+			Flyway.configure().dataSource(source).load().migrate();
+			assertThat(jdbc.queryForObject("SELECT remaining_cost FROM stock_batches", java.math.BigDecimal.class)).isEqualByComparingTo("20");
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_transfers", Integer.class)).isZero();
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transfer_allocations", Integer.class)).isZero();
+			assertThat(jdbc.queryForObject("SELECT source_batch_id FROM stock_batches", UUID.class)).isNull();
+			var dispatch = UUID.randomUUID();
+			var arrival = UUID.randomUUID();
+			var movement = UUID.randomUUID();
+			var allocation = UUID.randomUUID();
+			jdbc.update("INSERT INTO stock_operations(id, branch_id, actor_id, kind, request_hash, posted_at) VALUES (?, ?, ?, 'TRANSFER_OUT', 'dispatch', CURRENT_TIMESTAMP)",
+				dispatch, branch, actor);
+			jdbc.update("INSERT INTO stock_operations(id, branch_id, actor_id, kind, request_hash, posted_at) VALUES (?, ?, ?, 'TRANSFER_IN', 'arrival', CURRENT_TIMESTAMP)",
+				arrival, destination, actor);
+			assertThatThrownBy(() -> jdbc.update("""
+				INSERT INTO stock_transfers(id, source_id, destination_id, source_name, destination_name, status)
+				VALUES (?, ?, ?, 'Source', 'Destination', 'IN_TRANSIT')
+				""", dispatch, branch, branch)).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+			jdbc.update("""
+				INSERT INTO stock_transfers(id, source_id, destination_id, source_name, destination_name, status)
+				VALUES (?, ?, ?, 'Source', 'Destination', 'IN_TRANSIT')
+				""", dispatch, branch, destination);
+			jdbc.update("INSERT INTO stock_movements(id, operation_id, batch_id, kind, quantity, cost_change) VALUES (?, ?, ?, 'TRANSFER_OUT', -10, -20)",
+				movement, dispatch, batch);
+			jdbc.update("""
+				INSERT INTO transfer_allocations(id, transfer_id, movement_id, product_name, product_code, produce_type, base_unit, quantity, cost)
+				VALUES (?, ?, ?, 'Onions', 'ONION_KG', 'Onions', 'KG', 10, 20)
+				""", allocation, dispatch, movement);
+			assertThatThrownBy(() -> jdbc.update("UPDATE stock_transfers SET status = 'RECEIVED' WHERE id = ?", dispatch))
+				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+			assertThatThrownBy(() -> jdbc.update("UPDATE transfer_allocations SET received_quantity = 0 WHERE id = ?", allocation))
+				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+			assertThatThrownBy(() -> jdbc.update("""
+				UPDATE transfer_allocations SET received_quantity = 0, shortage_quantity = 8, damaged_quantity = 1,
+					received_cost = 0, loss_cost = 20, reason = 'Lost' WHERE id = ?
+				""", allocation)).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+			assertThatThrownBy(() -> jdbc.update("""
+				UPDATE transfer_allocations SET received_quantity = 0, shortage_quantity = 8, damaged_quantity = 2,
+					received_cost = 0, loss_cost = 20 WHERE id = ?
+				""", allocation)).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+			jdbc.update("""
+				UPDATE transfer_allocations SET received_quantity = 0, shortage_quantity = 8, damaged_quantity = 2,
+					received_cost = 0, loss_cost = 20, reason = 'Full loss' WHERE id = ?
+				""", allocation);
+			jdbc.update("UPDATE stock_transfers SET status = 'RECEIVED', receive_operation_id = ? WHERE id = ?", arrival, dispatch);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sales_events", Integer.class)).isZero();
+		}
+	}
+
+	@Test
 	void v5InitializesOpeningCarryingValuesInTheirOwnCurrencyWithoutInventingSalesOrLegacyCosts() throws Exception {
 		try (var keeper = DriverManager.getConnection(
 				"jdbc:h2:mem:sales-upgrade-" + UUID.randomUUID() + ";MODE=PostgreSQL", "sa", "")) {

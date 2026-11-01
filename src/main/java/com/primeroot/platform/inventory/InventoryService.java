@@ -163,6 +163,9 @@ public class InventoryService {
 		if (original.getKind() == Kind.SALE || original.getKind() == Kind.SALE_VOID) {
 			throw conflict("Sales stock can only be reversed through a full sale void");
 		}
+		if (original.getKind() == Kind.TRANSFER_OUT || original.getKind() == Kind.TRANSFER_IN) {
+			throw conflict("Transfer movements are final and cannot be reversed through stock adjustments");
+		}
 		if (original.getReversalOf() != null || movements.existsByReversalOfId(original.getId())) {
 			throw conflict("This movement is a reversal or has already been reversed");
 		}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Transfer arrival')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('Transfer arrival and traceability', 'A single final receipt accounts for every dispatched batch')}"></header>
+  <div th:replace="~{layout :: notice}"></div>
+  <section class="panel">
+    <h2 th:text="${detail.transfer.source} + ' → ' + ${detail.transfer.destination}"></h2>
+    <p><strong th:text="${detail.transfer.status}"></strong> / <span th:text="${detail.transfer.id}"></span></p>
+    <p>Dispatched (UTC): <span th:text="${detail.transfer.dispatchedAt}"></span> by <span th:text="${detail.dispatchedBy}"></span></p>
+    <p th:text="${detail.notes}"></p>
+    <p th:if="${detail.transfer.receivedAt != null}">Received (UTC): <span th:text="${detail.transfer.receivedAt}"></span> by <span th:text="${detail.receivedBy}"></span></p>
+    <p th:text="${detail.receiptNotes}"></p>
+    <a th:href="@{/ui/transfers}">Back to history</a>
+  </section>
+  <section class="panel">
+    <h2>Dispatched allocations</h2>
+    <p class="hint">Product and classification snapshots, original receipt/expiry dates and source batches are retained. Arrival creates stock, not revenue. Unknown source costs remain unknown.</p>
+    <div class="table-wrap"><table><thead><tr><th>Product / classification</th><th>Source trace</th><th>Dates</th><th>Dispatched</th><th>Received / shortage / damaged</th><th>Destination trace / reason</th><th th:if="${canProfit}">Carrying cost / arrived / lost</th></tr></thead>
+      <tbody><tr th:each="a : ${detail.allocations}">
+        <td><strong th:text="${a.productCode} + ' / ' + ${a.product}"></strong><p><span th:text="${a.produceType}"></span> / <span th:text="${a.variety}"></span> / <span th:text="${a.grade}"></span></p></td>
+        <td><span th:text="${a.lotCode}"></span><p th:text="${a.sourceBatchId}"></p></td>
+        <td><span th:text="${a.sourceReceivedDate}"></span><p th:text="${a.expiryDate == null ? 'No expiry' : a.expiryDate}"></p></td>
+        <td th:text="${a.quantity} + ' ' + ${a.baseUnit}"></td>
+        <td th:text="${a.receivedQuantity == null ? 'In transit' : a.receivedQuantity + ' / ' + a.shortageQuantity + ' / ' + a.damagedQuantity}"></td>
+        <td><span th:text="${a.destinationBatchId}"></span><p th:text="${a.reason}"></p></td>
+        <td th:if="${canProfit}"><span th:text="${a.cost == null ? 'Unknown' : a.currency + ' ' + a.cost}"></span>
+          <p th:if="${a.purchaseUnitCost != null}" th:text="'Source unit cost: ' + ${a.purchaseUnitCost} + ' / ' + ${a.sourceInputUnit}"></p>
+          <p th:if="${a.receivedQuantity != null}" th:text="${a.receivedCost == null ? 'Unknown' : a.receivedCost + ' / ' + a.lossCost}"></p></td>
+      </tr></tbody></table></div>
+  </section>
+  <section class="panel" th:if="${detail.canReceive}">
+    <h2>Finalize receipt</h2>
+    <p class="hint">One final receipt only. For every allocation, received + shortage + damaged must equal dispatched quantity. Shortage and damaged goods are permanent loss, not destination stock. Zero received is valid with a loss reason. No partial receipts, drafts or cancellations.</p>
+    <form id="transfer-receive" class="editor" th:attr="data-transfer-id=${detail.transfer.id}">
+      <fieldset th:each="a : ${detail.allocations}" class="transfer-arrival" th:attr="data-allocation-id=${a.id},data-quantity=${a.quantity}">
+        <legend th:text="${a.product} + ' / ' + ${a.lotCode} + ' / ' + ${a.quantity} + ' ' + ${a.baseUnit}"></legend>
+        <div class="grid">
+          <label>Received<input name="receivedQuantity" type="number" min="0" step="0.000001" required th:max="${a.quantity}" th:value="${a.quantity}"></label>
+          <label>Shortage<input name="shortageQuantity" type="number" min="0" step="0.000001" required th:max="${a.quantity}" value="0"></label>
+          <label>Damaged / rejected<input name="damagedQuantity" type="number" min="0" step="0.000001" required th:max="${a.quantity}" value="0"></label>
+        </div>
+        <label>Discrepancy reason<input name="reason" maxlength="500"></label>
+      </fieldset>
+      <label>Receipt notes<textarea name="notes" maxlength="500"></textarea></label>
+      <label class="check"><input type="checkbox" required> I have counted every allocation and confirm this receipt and permanent losses are final.</label>
+      <button type="submit">Finalize arrival and losses</button>
+      <p class="hint">Retry unchanged details after a network failure. Check history before editing an uncertain receipt.</p>
+    </form>
+  </section>
+</main>
+</body></html>

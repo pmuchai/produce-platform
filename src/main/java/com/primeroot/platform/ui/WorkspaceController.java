@@ -12,6 +12,8 @@ import com.primeroot.platform.access.StaffService;
 import com.primeroot.platform.audit.AuditService;
 import com.primeroot.platform.catalogue.CatalogueService;
 import com.primeroot.platform.inventory.InventoryService;
+import com.primeroot.platform.inventory.TransferService;
+import com.primeroot.platform.inventory.StockTransfer;
 import com.primeroot.platform.sales.SalesService;
 import com.primeroot.platform.sales.SalesReportService;
 import com.primeroot.platform.sales.SalesReports;
@@ -30,9 +32,11 @@ public class WorkspaceController {
 	private final InventoryService inventory;
 	private final SalesService sales;
 	private final SalesReportService salesReports;
+	private final TransferService transfers;
 
 	public WorkspaceController(StaffService staff, BranchService branches, CatalogueService catalogue,
-			AuditService audit, InventoryService inventory, SalesService sales, SalesReportService salesReports) {
+			AuditService audit, InventoryService inventory, SalesService sales, SalesReportService salesReports,
+			TransferService transfers) {
 		this.staff = staff;
 		this.branches = branches;
 		this.catalogue = catalogue;
@@ -40,6 +44,7 @@ public class WorkspaceController {
 		this.inventory = inventory;
 		this.sales = sales;
 		this.salesReports = salesReports;
+		this.transfers = transfers;
 	}
 
 	private void workspace(Model model, String page) {
@@ -64,6 +69,8 @@ public class WorkspaceController {
 		model.addAttribute("manageUsers", global && permissions.contains(Permission.USER_MANAGE));
 		model.addAttribute("canAudit", global && permissions.contains(Permission.AUDIT_VIEW));
 		model.addAttribute("canStock", permissions.contains(Permission.STOCK_VIEW));
+		model.addAttribute("canTransfers", permissions.contains(Permission.TRANSFER_VIEW));
+		model.addAttribute("dispatchTransfer", permissions.contains(Permission.TRANSFER_DISPATCH));
 		model.addAttribute("receiveStock", permissions.contains(Permission.STOCK_RECEIVE));
 		model.addAttribute("adjustStock", permissions.contains(Permission.STOCK_ADJUST));
 		model.addAttribute("spoilStock", permissions.contains(Permission.STOCK_SPOILAGE));
@@ -98,6 +105,7 @@ public class WorkspaceController {
 				new SalesTrend(entry.getKey(), entry.getValue(),
 					entry.getValue().subtract(previous.getOrDefault(entry.getKey(), java.math.BigDecimal.ZERO)))).toList());
 		}
+
 		if (Boolean.TRUE.equals(model.getAttribute("canStock"))) {
 			model.addAttribute("inventory", inventory.snapshot(null, period, 0));
 		}
@@ -121,6 +129,23 @@ public class WorkspaceController {
 	}
 
 	private record SalesTrend(String currency, java.math.BigDecimal revenue, java.math.BigDecimal change) {
+	}
+
+	@GetMapping("/ui/transfers")
+	public String transfers(Model model, @RequestParam(required = false) StockTransfer.Status status,
+			@RequestParam(defaultValue = "0") int page) {
+		model.addAttribute("history", transfers.history(status, page));
+		model.addAttribute("selectedStatus", status);
+		workspace(model, "transfers");
+		if (Boolean.TRUE.equals(model.getAttribute("dispatchTransfer"))) model.addAttribute("entry", transfers.entry());
+		return "transfers";
+	}
+
+	@GetMapping("/ui/transfers/{id}")
+	public String transfer(Model model, @org.springframework.web.bind.annotation.PathVariable UUID id) {
+		model.addAttribute("detail", transfers.detail(id));
+		workspace(model, "transfers");
+		return "transfer";
 	}
 
 	@GetMapping("/ui/sales")

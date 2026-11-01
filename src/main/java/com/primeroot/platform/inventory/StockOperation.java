@@ -19,7 +19,7 @@ import org.springframework.data.domain.Persistable;
 @Entity
 @Table(name = "stock_operations")
 public class StockOperation implements Persistable<UUID> {
-	public enum Kind { RECEIPT, ADJUSTMENT, SPOILAGE, REVERSAL, SALE, SALE_VOID }
+	public enum Kind { RECEIPT, ADJUSTMENT, SPOILAGE, REVERSAL, SALE, SALE_VOID, TRANSFER_OUT, TRANSFER_IN }
 	@Id
 	private UUID id;
 	@ManyToOne(optional = false)

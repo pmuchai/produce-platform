@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Stock transfers')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('Stock transfers', 'Dispatch, in-transit stock, final arrivals and permanent losses')}"></header>
+  <div th:replace="~{layout :: notice}"></div>
+  <section class="panel" th:if="${dispatchTransfer}">
+    <h2>Dispatch stock</h2>
+    <p class="hint">Quantities are in the product base unit. Earliest-expiry unexpired batches are allocated automatically. Dispatch removes stock immediately; no draft or cancellation.</p>
+    <form id="transfer-dispatch" class="editor">
+      <div class="grid">
+        <label>Source branch<select name="sourceId" required><option value="">Choose source</option><option th:each="b : ${entry.sources}" th:value="${b.id}" th:text="${b.label}"></option></select></label>
+        <label>Destination branch<select name="destinationId" required><option value="">Choose destination</option><option th:each="b : ${entry.destinations}" th:value="${b.id}" th:text="${b.label}"></option></select></label>
+      </div>
+      <div id="transfer-lines">
+        <div class="transfer-line receipt-line">
+          <label>Product / base unit<select name="productId" required><option value="">Choose product</option><option th:each="p : ${entry.products}" th:value="${p.id}" th:text="${p.label}"></option></select></label>
+          <label>Dispatch quantity<input name="quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
+          <button type="button" class="secondary" data-remove-transfer-line>Remove line</button>
+        </div>
+      </div>
+      <button id="add-transfer-line" type="button" class="secondary">Add product</button>
+      <label>Dispatch notes<textarea name="notes" maxlength="500"></textarea></label>
+      <button type="submit">Dispatch stock now</button>
+      <p class="hint">After an uncertain network result, retry unchanged details. Editing starts a new request; check history before doing so.</p>
+    </form>
+  </section>
+  <section class="panel">
+    <h2>Transfer history</h2>
+    <form method="get" th:action="@{/ui/transfers}" class="date-filter">
+      <label>Status<select name="status"><option value="">All transfers</option><option value="IN_TRANSIT" th:selected="${selectedStatus != null and selectedStatus.name() == 'IN_TRANSIT'}">In transit</option><option value="RECEIVED" th:selected="${selectedStatus != null and selectedStatus.name() == 'RECEIVED'}">Finally received</option></select></label>
+      <button type="submit">Filter</button>
+    </form>
+    <p class="hint" th:text="${history.totalElements} + ' transfers touching your branch scope; newest dispatch first.'"></p>
+    <div class="table-wrap"><table><thead><tr><th>Transfer</th><th>Source</th><th>Destination</th><th>Status</th><th>Dispatched (UTC)</th><th>Received (UTC)</th></tr></thead>
+      <tbody><tr th:each="t : ${history.transfers}">
+        <td><a th:href="@{/ui/transfers/{id}(id=${t.id})}" th:text="${t.id}"></a></td><td th:text="${t.source}"></td><td th:text="${t.destination}"></td>
+        <td th:text="${t.status}"></td><td th:text="${t.dispatchedAt}"></td><td th:text="${t.receivedAt}"></td>
+      </tr><tr th:if="${history.transfers.isEmpty()}"><td colspan="6">No transfers in this scope.</td></tr></tbody>
+    </table></div>
+    <nav class="tabs" aria-label="Transfer pages">
+      <a th:if="${history.page > 0}" th:href="@{/ui/transfers(status=${selectedStatus},page=${history.page - 1})}">Previous</a>
+      <a th:if="${history.page + 1 < history.totalPages}" th:href="@{/ui/transfers(status=${selectedStatus},page=${history.page + 1})}">Next</a>
+    </nav>
+  </section>
+</main>
+</body></html>
