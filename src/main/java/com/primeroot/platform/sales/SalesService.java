@@ -2,6 +2,8 @@ package com.primeroot.platform.sales;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Currency;
 import java.util.List;
@@ -92,6 +94,7 @@ public class SalesService {
 
 	public SalesDtos.Quote quote(SalesDtos.QuoteRequest request) {
 		var branch = sellingBranch();
+		var saleDate = saleDate(request.saleDate());
 		var total = BigDecimal.ZERO;
 		var required = new java.util.LinkedHashMap<UUID, BigDecimal>();
 		for (var line : request.lines()) {
@@ -99,7 +102,7 @@ public class SalesService {
 			required.merge(line.productId(), conversion.quantity(), BigDecimal::add);
 			total = total.add(lineAmount(line));
 		}
-		required.forEach((product, quantity) -> ledger.checkAvailable(branch.getId(), product, quantity, currency));
+		required.forEach((product, quantity) -> ledger.checkAvailable(branch.getId(), product, quantity, currency, saleDate));
 		return new SalesDtos.Quote(currency.getCurrencyCode(), money(total));
 	}
 
@@ -109,6 +112,7 @@ public class SalesService {
 		var branch = lock(sellingBranch().getId(), true);
 		var hash = PostingFingerprint.of(json, StockOperation.Kind.SALE, actor.getId(), request);
 		if (previous(request.requestId(), hash)) return receipt(request.requestId());
+		var saleDate = saleDate(request.saleDate());
 		if (request.customer() != null && request.customer().isBlank()) throw invalid("Choose Walk-ins or enter a customer name");
 		var reference = reference(request.paymentReference());
 		if (request.paymentMethod() == Sale.PaymentMethod.CASH) {
@@ -128,19 +132,22 @@ public class SalesService {
 		for (var line : request.lines()) {
 			var conversion = quantities.resolve(line.productId(), line.unitId(), line.quantity(), line.measuredBaseQuantity());
 			var amount = lineAmount(line);
-			var taken = ledger.allocate(operation, line.productId(), conversion.quantity(), currency);
+			var taken = ledger.allocate(operation, line.productId(), conversion.quantity(), currency, saleDate);
 			var lineCost = taken.stream().map(SaleStockLedger.Allocation::cost).reduce(BigDecimal.ZERO, BigDecimal::add);
 			prepared.add(new PreparedLine(line, conversion, amount, lineCost, taken));
 			total = total.add(amount);
 			cost = cost.add(lineCost);
 		}
-		var sale = sales.save(new Sale(operation, actor, request, currency.getCurrencyCode(), total, cost, reference));
+		var sale = sales.save(new Sale(operation, actor, request, currency.getCurrencyCode(), total, cost, reference, saleDate));
 		int number = 0;
 		for (var item : prepared) {
 			var line = lines.save(new SaleLine(sale, ++number, item.request(), item.conversion(), item.total(), item.cost()));
 			for (var taken : item.allocations()) allocations.save(new SaleAllocation(line, taken));
 		}
 		audit.save(new AuditEvent(actor.getId(), "SALE_POSTED", "SALE", sale.getId()));
+		if (saleDate.isBefore(operation.getPostedAt().atOffset(ZoneOffset.UTC).toLocalDate())) {
+			audit.save(new AuditEvent(actor.getId(), "SALE_BACKDATED", "SALE", sale.getId()));
+		}
 		sales.flush();
 		return receipt(sale.getId());
 	}
@@ -191,7 +198,7 @@ public class SalesService {
 					item.getQuantity(), profit ? money(item.getCost(), receiptCurrency) : null)).toList())).toList();
 		var reversal = sale.getVoidOperation();
 		return new SalesDtos.Receipt(id, "PR-" + id.toString().toUpperCase(Locale.ROOT), sale.getBranch().getId(),
-			sale.getBranchName(), sale.getSellerId(), sale.getSellerName(), sale.getCustomer(), operation.getPostedAt(),
+			sale.getBranchName(), sale.getSellerId(), sale.getSellerName(), sale.getCustomer(), operation.getPostedAt(), sale.getSaleDate(),
 			sale.getCurrency(), sale.getPaymentMethod(), sale.getPaymentReference(), operation.getNotes(),
 			reversal == null ? "PAID" : "VOIDED", money(sale.getTotal(), receiptCurrency), profit ? money(sale.getCost(), receiptCurrency) : null,
 			profit ? money(sale.getTotal().subtract(sale.getCost()), receiptCurrency) : null,
@@ -220,6 +227,15 @@ public class SalesService {
 
 	private BigDecimal money(BigDecimal value) {
 		return money(value, currency);
+	}
+
+	private static LocalDate saleDate(LocalDate date) {
+		var today = LocalDate.now(ZoneOffset.UTC);
+		if (date == null) return today;
+		if (date.isBefore(LocalDate.of(1970, 1, 1)) || date.isAfter(today)) {
+			throw invalid("Sale date must be between 1970-01-01 and today (UTC)");
+		}
+		return date;
 	}
 
 	private BigDecimal lineAmount(SalesDtos.LineRequest line) {

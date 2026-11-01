@@ -35,7 +35,7 @@ class SalesIntegrationTests extends OidcTestSupport {
 
 	@BeforeEach
 	void reset() {
-		for (var table : List.of("audit_events", "sale_allocations", "sale_lines", "sales", "stock_movements",
+		for (var table : List.of("audit_events", "transfer_allocations", "stock_transfers", "sale_allocations", "sale_lines", "sales", "stock_movements",
 				"stock_batches", "stock_operations", "stock_thresholds", "product_packaging", "products",
 				"product_classifications", "produce_types", "user_branches", "staff_users", "branches")) {
 			jdbc.update("DELETE FROM " + table);
@@ -59,6 +59,17 @@ class SalesIntegrationTests extends OidcTestSupport {
 			var receipt = seller.body(posted);
 			assertThat(receipt.get("branchId").asText()).isEqualTo(branch);
 			assertThat(receipt.get("customer").asText()).isEqualTo("Walk-ins");
+			assertThat(receipt.get("saleDate").asText()).isEqualTo(today.toString());
+			var known = new HashMap<>(request);
+			known.remove("branchId");
+			var typed = json.readValue(json.writeValueAsString(known), com.primeroot.platform.sales.SalesDtos.CreateRequest.class);
+			record LegacyRequest(UUID requestId, String customer, com.primeroot.platform.sales.Sale.PaymentMethod paymentMethod,
+				String paymentReference, String notes, List<com.primeroot.platform.sales.SalesDtos.LineRequest> lines) {}
+			var legacyHash = com.primeroot.platform.inventory.PostingFingerprint.of(json,
+				com.primeroot.platform.inventory.StockOperation.Kind.SALE, UUID.fromString(receipt.get("sellerId").asText()),
+				new LegacyRequest(typed.requestId(), typed.customer(), typed.paymentMethod(), typed.paymentReference(), typed.notes(), typed.lines()));
+			assertThat(jdbc.queryForObject("SELECT request_hash FROM stock_operations WHERE id = ?", String.class,
+				UUID.fromString(receipt.get("id").asText()))).isEqualTo(legacyHash);
 			assertThat(receipt.get("total").asText()).isEqualTo("9000.00");
 			assertThat(receipt.get("cost").isNull()).isTrue();
 			assertThat(receipt.get("lines").get(0).get("allocations").size()).isEqualTo(2);
@@ -275,21 +286,31 @@ class SalesIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
-	void voidsUseTheirOwnUtcPostingDateAndAllReportPagesRenderWithoutBackdatingHistory() throws Exception {
+	void backdatedSalesUseSelectedDateWhileVoidsKeepActualPostingDateAndAuditTime() throws Exception {
 		try (var admin = browser(); var seller = browser()) {
 			fixture(admin);
 			receive(admin, "10", "80", "AVAILABLE", null);
 			seller.login("sale-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
-			var posted = seller.body(seller.mutate("POST", "/api/sales", sale("2", "100")));
+			var request = sale("2", "100");
+			request.put("saleDate", today.minusDays(2).toString());
+			var response = seller.mutate("POST", "/api/sales", request);
+			assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(201);
+			var posted = seller.body(response);
 			var id = posted.get("id").asText();
-			jdbc.update("UPDATE stock_operations SET posted_at = ? WHERE id = ?",
-				today.minusDays(2).atTime(23, 59, 59).atOffset(ZoneOffset.UTC), UUID.fromString(id));
+			assertThat(posted.get("saleDate").asText()).isEqualTo(today.minusDays(2).toString());
+			assertThat(java.time.Instant.parse(posted.get("postedAt").asText()).atOffset(ZoneOffset.UTC).toLocalDate()).isEqualTo(today);
+			assertThat(seller.mutate("POST", "/api/sales", request).statusCode()).isEqualTo(201);
+			request.put("saleDate", today.minusDays(1).toString());
+			assertThat(seller.mutate("POST", "/api/sales", request).statusCode()).isEqualTo(409);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action = 'SALE_BACKDATED'", Integer.class)).isEqualTo(1);
+			var priorNet = admin.body(admin.get("/api/finance/reports/net-profit?start=" + today.minusDays(2) + "&end=" + today.minusDays(2)));
+			assertThat(priorNet.get("totals").get(0).get("netProfit").asText()).isEqualTo("40.00");
 			admin.mutate("POST", "/api/sales/" + id + "/void", voidRequest());
 			var historical = admin.body(admin.get("/api/sales/reports/profit?start=" + today.minusDays(2) + "&end=" + today.minusDays(2)));
 			assertThat(historical.get("totals").get(0).get("revenue").asText()).isEqualTo("200.00");
 			assertThat(historical.get("totals").get(0).get("grossProfit").asText()).isEqualTo("40.00");
 			var ledger = admin.body(admin.get("/api/sales/reports/sales?start=" + today.minusDays(2) + "&end=" + today.minusDays(2)));
-			assertThat(ledger.get("rows").get(0).get("label").asText()).startsWith(today.minusDays(2) + " 23:59:59");
+			assertThat(ledger.get("rows").get(0).get("label").asText()).startsWith(today.minusDays(2) + " 00:00:00");
 			var current = admin.body(admin.get("/api/sales/reports/profit?start=" + today + "&end=" + today));
 			assertThat(current.get("totals").get(0).get("revenue").asText()).isEqualTo("-200.00");
 			assertThat(current.get("totals").get(0).get("grossProfit").asText()).isEqualTo("-40.00");
@@ -302,6 +323,66 @@ class SalesIntegrationTests extends OidcTestSupport {
 			}
 			assertThat(admin.get("/ui/sales/" + id).statusCode()).isEqualTo(200);
 			assertThat(admin.get("/api/sales/reports/sales?page=-1").statusCode()).isEqualTo(400);
+			assertLedgers();
+		}
+	}
+
+	@Test
+	void backdatingValidatesDatesAndOnlyUsesStockReceivedAndUnexpiredOnTheSelectedDate() throws Exception {
+		try (var admin = browser(); var seller = browser()) {
+			fixture(admin);
+			receive(admin, "5", "10", "SOLD_YESTERDAY", today.minusDays(1));
+			receive(admin, "100", "10", "ARRIVED_TODAY", null);
+			jdbc.update("UPDATE stock_batches SET received_date = ? WHERE lot_code = 'ARRIVED_TODAY'", today);
+			seller.login("sale-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			for (var date : List.of(today.plusDays(1).toString(), "1969-12-31", "not-a-date")) {
+				var request = sale("1", "20");
+				request.put("saleDate", date);
+				assertThat(seller.mutate("POST", "/api/sales", request).statusCode()).as(date).isEqualTo(400);
+				assertThat(seller.mutate("POST", "/api/sales/quote",
+					Map.of("lines", request.get("lines"), "saleDate", date)).statusCode()).as(date).isEqualTo(400);
+			}
+			var request = sale("6", "20");
+			request.put("saleDate", today.minusDays(1).toString());
+			assertThat(seller.mutate("POST", "/api/sales/quote",
+				Map.of("lines", request.get("lines"), "saleDate", request.get("saleDate"))).statusCode()).isEqualTo(409);
+			assertThat(seller.mutate("POST", "/api/sales", request).statusCode()).isEqualTo(409);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sales", Integer.class)).isZero();
+			request.put("lines", List.of(saleLine("5", "20")));
+			assertThat(seller.mutate("POST", "/api/sales/quote",
+				Map.of("lines", request.get("lines"), "saleDate", request.get("saleDate"))).statusCode()).isEqualTo(200);
+			var posted = seller.mutate("POST", "/api/sales", request);
+			assertThat(posted.statusCode()).withFailMessage(posted.body()).isEqualTo(201);
+			assertBatch("SOLD_YESTERDAY", "0", "0");
+			assertBatch("ARRIVED_TODAY", "100", "1000");
+			assertThat(seller.get("/ui/sales").body()).contains("name=\"saleDate\"", "value=\"" + today + "\"");
+			assertThat(admin.get("/ui/sales/" + seller.body(posted).get("id").asText()).body())
+				.contains("Sale date (UTC)", today.minusDays(1).toString(), "Recorded at:");
+			assertLedgers();
+		}
+	}
+
+	@Test
+	void transferredStockCannotBeSoldBeforeItsArrivalDespiteOriginalSourceReceiptDate() throws Exception {
+		try (var admin = browser(); var seller = browser()) {
+			fixture(admin);
+			receive(admin, "10", "10", "TRANSFERRED", null);
+			var response = admin.mutate("POST", "/api/transfers", Map.of("requestId", UUID.randomUUID(),
+				"sourceId", branch, "destinationId", otherBranch, "lines", List.of(Map.of("productId", product, "quantity", "3"))));
+			assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(201);
+			var transfer = admin.body(response);
+			var allocation = transfer.get("allocations").get(0);
+			assertThat(admin.mutate("POST", "/api/transfers/" + transfer.get("transfer").get("id").asText() + "/receive",
+				Map.of("requestId", UUID.randomUUID(), "allocations", List.of(Map.of("allocationId", allocation.get("id").asText(),
+					"receivedQuantity", "3", "shortageQuantity", "0", "damagedQuantity", "0")))).statusCode()).isEqualTo(200);
+			seller.login("other-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			var request = sale("1", "20");
+			request.put("saleDate", today.minusDays(1).toString());
+			assertThat(seller.mutate("POST", "/api/sales/quote",
+				Map.of("lines", request.get("lines"), "saleDate", request.get("saleDate"))).statusCode()).isEqualTo(409);
+			assertThat(seller.mutate("POST", "/api/sales", request).statusCode()).isEqualTo(409);
+			request.put("saleDate", today.toString());
+			assertThat(seller.mutate("POST", "/api/sales", request).statusCode()).isEqualTo(201);
 			assertLedgers();
 		}
 	}

@@ -27,12 +27,12 @@ public class SaleStockLedger {
 		this.movements = movements;
 	}
 
-	public void checkAvailable(UUID branch, UUID product, BigDecimal quantity, Currency currency) {
+	public void checkAvailable(UUID branch, UUID product, BigDecimal quantity, Currency currency, LocalDate saleDate) {
 		var remaining = quantity;
 		int page = 0;
 		while (remaining.signum() > 0) {
-			var candidates = batches.saleCandidates(branch, product, LocalDate.now(ZoneOffset.UTC), PageRequest.of(page++, 100));
-			if (candidates.isEmpty()) throw conflict("Insufficient unexpired stock; the entire sale was not posted");
+			var candidates = candidates(branch, product, saleDate, page++);
+			if (candidates.isEmpty()) throw conflict("Insufficient stock eligible on the sale date; the entire sale was not posted");
 			for (var batch : candidates) {
 				requireCost(batch, currency);
 				remaining = remaining.subtract(remaining.min(batch.getQuantity()));
@@ -41,13 +41,12 @@ public class SaleStockLedger {
 		}
 	}
 
-	public List<Allocation> allocate(StockOperation operation, UUID productId, BigDecimal quantity, Currency currency) {
+	public List<Allocation> allocate(StockOperation operation, UUID productId, BigDecimal quantity, Currency currency, LocalDate saleDate) {
 		var remaining = quantity;
 		var result = new ArrayList<Allocation>();
 		while (remaining.signum() > 0) {
-			var candidates = batches.saleCandidates(operation.getBranch().getId(), productId,
-				LocalDate.now(ZoneOffset.UTC), PageRequest.of(0, 100));
-			if (candidates.isEmpty()) throw conflict("Insufficient unexpired stock; the entire sale was not posted");
+			var candidates = candidates(operation.getBranch().getId(), productId, saleDate, 0);
+			if (candidates.isEmpty()) throw conflict("Insufficient stock eligible on the sale date; the entire sale was not posted");
 			for (var batch : candidates) {
 				requireCost(batch, currency);
 				var taken = remaining.min(batch.getQuantity());
@@ -90,6 +89,11 @@ public class SaleStockLedger {
 	}
 
 	public record Allocation(StockMovement movement, BigDecimal quantity, BigDecimal cost) {
+	}
+
+	private List<StockBatch> candidates(UUID branch, UUID product, LocalDate date, int page) {
+		return batches.saleCandidatesOnDate(branch, product, date, date.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC),
+			PageRequest.of(page, 100));
 	}
 
 	private static void requireCost(StockBatch batch, Currency currency) {

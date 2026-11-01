@@ -9,9 +9,10 @@
   <div th:replace="~{layout :: notice}"></div>
   <section class="panel">
     <h2 th:text="${entry.branch}">Selling branch</h2>
-    <p class="hint">Your branch is assigned by your administrator, not selected at checkout. Stock is allocated earliest-expiry first; expired stock cannot be sold.</p>
+    <p class="hint">Your branch is assigned by your administrator. Sale date defaults to today (UTC); choose a past date to record a sale completed during downtime. Stock is deducted now, earliest-expiry first, from batches eligible on that sale date.</p>
     <form id="sale-form" class="editor">
       <div class="grid">
+        <label>Sale date (UTC)<input name="saleDate" type="date" min="1970-01-01" th:max="${today}" th:value="${today}" required></label>
         <label>Customer<select name="customer" id="sale-customer">
           <option value="Walk-ins" selected>Walk-ins</option>
           <option th:each="customer : ${entry.customers}" th:value="${customer}" th:text="${customer}"></option>

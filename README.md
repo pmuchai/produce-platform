@@ -173,7 +173,7 @@ Net profit = net sales - net COGS - net paid expenses
              - net spoilage cost - finalized transfer loss cost
 ```
 
-Sales/voids use their existing posting dates. Expenses use the paid date;
+Sales use their selected UTC sale date; voids use their actual posting dates. Expenses use the paid date;
 expense voids reverse the amount on the correction's UTC date, not by rewriting
 an older report. Transfer shortages/damage are attributed to the **source branch**
 on final arrival, using the snapshotted loss cost. In-transit stock and successful
@@ -882,6 +882,28 @@ rendered or trusted in a sale request. Business-wide/multi-branch managers can
 report within scope but cannot sell until assigned a single selling branch.
 Changing staff scope continues to revoke existing sessions as in Phase 1.
 
+**Sale date defaults to the present day in UTC.** The date picker accepts today
+or a past date (1970-01-01 onward) so a completed sale can be recorded after
+downtime. Future dates are rejected by the server. Both quote and sale APIs
+accept optional `saleDate`; omission preserves the today default for existing
+clients. Changing the date invalidates the quote and payment confirmation.
+
+The selected date is immutable and shown separately from the actual **Recorded
+at** timestamp on the receipt. Backdated sales have an additional `SALE_BACKDATED`
+audit event. Sales, payment summaries, gross-profit and net-profit reports use
+the selected sale date; refunds keep their own actual posting date. V12 backfills
+existing sales from their UTC posting dates without changing their timestamps.
+Back up PostgreSQL before applying this migration.
+
+Backdating does **not** recreate an earlier stock ledger. Stock is deducted now
+from currently available quantities and carrying costs, limited to batches
+received by the selected date and unexpired on that date. Transferred batches
+cannot be sold before their recorded arrival date. A batch that expired since
+the actual sale can be allocated for that past date, but not for today's sale.
+Reconcile physical stock and record any missing receipts before recovery entry;
+use notes to describe the outage. Historical transfer arrivals and unavailable
+stock are not invented, and no negative stock is permitted.
+
 The customer dropdown defaults to **Walk-ins**. It suggests up to 500 distinct
 names previously used at that branch; **Add customer...** accepts a new name
 or one not in the suggestions. The selected name is saved on the receipt and
@@ -892,8 +914,8 @@ Enter one or more products, selling units, quantities and unit selling prices.
 Fixed packaging and actual measured packaging use the same conversion service
 as receipts; the sale snapshots its conversion and product/unit labels.
 **Calculate total** validates the combined quantities across all lines against
-unexpired stock and computes the rounded payable amount on the server, without
-posting stock or reserving it. Recalculate after changing lines, receive the
+stock eligible on the selected sale date and computes the rounded payable amount
+on the server, without posting stock or reserving it. Recalculate after changing lines or date, receive the
 full payment, confirm it and post. A concurrent checkout can change availability;
 posting rechecks everything atomically.
 
@@ -910,7 +932,7 @@ unit prices; receipts explicitly state that they are **not tax invoices**.
 
 Sales allocate automatically by earliest expiry, then receipt date, creation
 time and batch ID; undated stock is last. The expiry date is the last sellable
-day in UTC. Expired stock remains physical inventory but is never allocated.
+day in UTC. Stock expired on the selected sale date is never allocated.
 Allocation continues beyond the first 100 batches. Insufficient stock, an
 allocated unknown-cost batch or a different-currency batch rejects the entire
 sale. Unknown legacy costs are not assumed to be zero or silently bypassed.
@@ -975,7 +997,7 @@ unless `PROFIT_VIEW` is also present. There is no role-name shortcut.
 
 Date-filtered reports use inclusive UTC dates and an exclusive next-day
 boundary, default to this week and accept up to 366 days. Sales are recognized
-on their posting date; full refunds/COGS reversals are negative events on the
+on their selected sale date; full refunds/COGS reversals are negative events on the
 void posting date. Voiding does not rewrite an earlier interval. Amounts are
 never combined across currencies. Product quantities remain in their own base
 units. Current stock valuation is explicitly **not historical** and has no

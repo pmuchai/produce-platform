@@ -306,6 +306,7 @@
   const saleLines = document.getElementById('sale-lines');
   const readSaleLines = () => [...saleLines.children].map(line => Object.fromEntries(
     [...line.querySelectorAll('[name]')].map(field => [field.name, field.value || null])));
+  const readSaleQuote = () => ({lines: readSaleLines(), saleDate: saleForm.elements.saleDate.value});
   let quotedLines = null;
   const invalidateQuote = () => {
     quotedLines = null;
@@ -313,6 +314,7 @@
     saleForm.elements.paymentConfirmed.checked = false;
   };
   saleLines?.addEventListener('input', invalidateQuote);
+  saleForm?.elements.saleDate.addEventListener('input', invalidateQuote);
   const customer = document.getElementById('sale-customer');
   customer?.addEventListener('change', () => {
     const adding = customer.value === '__new__';
@@ -345,15 +347,15 @@
   });
   document.getElementById('quote-sale')?.addEventListener('click', async event => {
     const button = event.currentTarget;
-    const lines = readSaleLines();
-    const fingerprint = JSON.stringify(lines);
+    const input = readSaleQuote();
+    const fingerprint = JSON.stringify(input);
     const output = document.getElementById('sale-total');
     button.disabled = true;
     try {
       const quote = await request('api/sales/quote', {
-        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({lines})
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input)
       });
-      if (JSON.stringify(readSaleLines()) !== fingerprint) throw new Error('Lines changed. Calculate the total again.');
+      if (JSON.stringify(readSaleQuote()) !== fingerprint) throw new Error('Lines or sale date changed. Calculate the total again.');
       quotedLines = fingerprint;
       output.className = '';
       output.textContent = `Total: ${quote.currency} ${quote.total}. Stock availability is rechecked when posting.`;
@@ -377,7 +379,8 @@
         data.paymentReference = form.elements.paymentReference.value || null;
         data.notes = form.elements.notes.value || null;
         data.lines = readSaleLines();
-        if (quotedLines !== JSON.stringify(data.lines)) {
+        data.saleDate = form.elements.saleDate.value;
+        if (quotedLines !== JSON.stringify({lines: data.lines, saleDate: data.saleDate})) {
           const message = form.querySelector('.form-message');
           message.className = 'form-message error';
           message.textContent = 'Calculate the current total before confirming payment and posting.';
