@@ -36,6 +36,13 @@
           <span th:unless="${canStock}" aria-disabled="true">Stock Movement <small>No access</small></span></li>
       </ul>
     </details>
+    <details class="nav-group" id="nav-transfers" th:if="${canTransfers}" th:open="${navGroup == 'transfers'}">
+      <summary>Stock transfers</summary>
+      <ul class="nav-children">
+        <li><a th:href="@{/ui/transfers}" th:attr="aria-current=${page == 'transfers' ? 'page' : null}">Dispatch &amp; history</a></li>
+        <li><a th:href="@{/ui/transfers(status='IN_TRANSIT')}">In transit / receive</a></li>
+      </ul>
+    </details>
     <details class="nav-group" id="nav-reports" th:if="${!salesReportKinds.isEmpty() or canStock or canAudit}" th:open="${navGroup == 'reports'}">
       <summary>Reports</summary>
       <ul class="nav-children">
@@ -73,7 +80,7 @@
 </aside>
 <header th:fragment="header(title, subtitle)" class="page-header">
   <div><p class="eyebrow">PRIME ROOT</p><h1 th:text="${title}">Dashboard</h1><p class="muted" th:text="${subtitle}"></p></div>
-  <span class="badge">Phase 4 / Sales and reporting</span>
+  <span class="badge">Phase 5 / Stock transfers</span>
 </header>
 <form th:fragment="dates(action)" method="get" th:action="${action}" class="date-filter panel">
   <input th:if="${selectedBranch != null}" type="hidden" name="branchId" th:value="${selectedBranch}">

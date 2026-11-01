@@ -67,6 +67,67 @@
   };
 
   const staffForm = document.getElementById('staff-form');
+  const transferDispatch = document.getElementById('transfer-dispatch');
+  const transferReceive = document.getElementById('transfer-receive');
+  if (transferDispatch) {
+    const container = document.getElementById('transfer-lines');
+    const prototype = container.firstElementChild.cloneNode(true);
+    document.getElementById('add-transfer-line').addEventListener('click', () => {
+      if (container.children.length < 100) container.append(prototype.cloneNode(true));
+    });
+    container.addEventListener('click', event => {
+      if (event.target.closest('[data-remove-transfer-line]') && container.children.length > 1) {
+        event.target.closest('.transfer-line').remove();
+      }
+    });
+  }
+  [transferDispatch, transferReceive].filter(Boolean).forEach(form => {
+    let identity;
+    let requestId;
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const dispatch = form === transferDispatch;
+      const payload = dispatch ? {
+        sourceId: form.elements.sourceId.value, destinationId: form.elements.destinationId.value,
+        notes: form.elements.notes.value,
+        lines: [...form.querySelectorAll('.transfer-line')].map(row => ({
+          productId: row.querySelector('[name="productId"]').value,
+          quantity: row.querySelector('[name="quantity"]').value
+        }))
+      } : {
+        notes: form.elements.notes.value,
+        allocations: [...form.querySelectorAll('.transfer-arrival')].map(row => ({
+          allocationId: row.dataset.allocationId,
+          receivedQuantity: row.querySelector('[name="receivedQuantity"]').value,
+          shortageQuantity: row.querySelector('[name="shortageQuantity"]').value,
+          damagedQuantity: row.querySelector('[name="damagedQuantity"]').value,
+          reason: row.querySelector('[name="reason"]').value
+        }))
+      };
+      if (dispatch && payload.sourceId === payload.destinationId) {
+        showNotice('Choose different source and destination branches.', true);
+        return;
+      }
+      const button = form.querySelector('button[type="submit"]');
+      try {
+        const nextIdentity = JSON.stringify(payload);
+        if (identity !== nextIdentity) {
+          requestId = newRequestId();
+          identity = nextIdentity;
+        }
+        button.disabled = true;
+        const result = await request(dispatch ? 'api/transfers'
+          : `api/transfers/${form.dataset.transferId}/receive`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({...payload, requestId})
+        });
+        window.location.assign(base + `ui/transfers/${result.transfer.id}`);
+      } catch (error) {
+        showNotice(error.message, true);
+        button.disabled = false;
+      }
+    });
+  });
   if (staffForm) {
     const branchSelect = staffForm.elements.branchIds;
     const updateScope = () => {

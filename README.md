@@ -7,6 +7,8 @@ a shared, permission-aware workspace. Phase 3 adds branch inventory, receipts,
 batch traceability, receipt purchase costs, spoilage, corrections and stock reporting.
 Phase 4 adds branch-bound paid sales, customer selection, automatic FEFO stock
 allocation, receipts, full-sale voids, gross profit and staff/branch sales reporting.
+Phase 5 adds atomic inter-branch dispatch, explicit in-transit stock, final
+arrival with shortages/damage, carrying-cost traceability and transfer history.
 
 ## Requirements
 
@@ -39,10 +41,13 @@ The application implements these capabilities:
 | `STOCK_RECEIVE` | Post receipts into active branches within scope |
 | `STOCK_SPOILAGE` | Record batch losses within branch scope |
 | `STOCK_ADJUST` | Post signed corrections, reverse movements and configure stock minimums within scope |
+| `TRANSFER_VIEW` | Read transfers touching an assigned active source or destination branch, including in-transit history and discrepancies |
+| `TRANSFER_DISPATCH` | Dispatch from an assigned active source to a different active destination |
+| `TRANSFER_RECEIVE` | Finally receive at an assigned active destination and account for permanent shortages/damage |
 | `SALE_CREATE` | Post paid sales in exactly one assigned branch; quote totals and view own receipts/performance |
 | `SALES_VIEW` | Read all sales and staff performance within assigned branch scope |
 | `SALE_VOID` | Void a whole sale within scope after all goods are returned and a full manual refund is confirmed |
-| `PROFIT_VIEW` | View costs/margins on sales receipts and financial reports, including current stock valuation |
+| `PROFIT_VIEW` | View purchase/carrying costs on inventory, sales and transfers, including arrival/loss costs and financial reports |
 
 Permissions are independent: managing does not implicitly grant viewing.
 Only these exact permission codes in the validated ID token's `app_roles`
@@ -83,8 +88,8 @@ For local development, start Keycloak on port 8081 and create:
 3. Exact valid redirect URI
    `http://localhost:8080/login/oauth2/code/keycloak` and exact valid post-logout
    redirect URI `http://localhost:8080/`. Do not use wildcards.
-4. The fifteen client permission roles listed above. Create a composite `ADMIN`
-   role containing all fifteen. Create other job-function composites from the
+4. The eighteen client permission roles listed above. Create a composite `ADMIN`
+   role containing all eighteen. Create other job-function composites from the
    relevant permissions and assign them to staff.
 5. A **User Client Role** protocol mapper for client `produce-platform`, claim
    `app_roles`, JSON type `String`, multivalued, included in the **ID token**.
@@ -93,7 +98,7 @@ For local development, start Keycloak on port 8081 and create:
    If Full Scope Allowed is disabled, explicitly map the required roles.
 6. A test staff user with a permanent Keycloak credential and the composite
    `ADMIN` assignment. Copy that user's **ID**, not a role ID or client ID.
-   Use Keycloak's token evaluation to check that `app_roles` includes the fifteen
+   Use Keycloak's token evaluation to check that `app_roles` includes the eighteen
    effective permission codes.
 
 **Upgrading from Phase 1:** add `CATALOGUE_VIEW` and `CATALOGUE_MANAGE` client
@@ -111,6 +116,84 @@ staff identities are needed. Inventory operators do not need catalogue
 management, branch management or business-wide access. Include `STOCK_VIEW`
 alongside their posting permissions for the inventory screens. Restrict
 `STOCK_ADJUST` to staff authorized to correct balances and reverse postings.
+
+**Upgrading from Phase 4:** add `TRANSFER_VIEW`, `TRANSFER_DISPATCH` and
+`TRANSFER_RECEIVE` to appropriate Keycloak client composites and scope mappings,
+then sign out and sign back in. Give transfer operators `TRANSFER_VIEW` alongside
+their posting permission for the workspace screens. Dispatch authorization is
+against the source; receipt authorization is against the destination. Dispatchers
+can choose any active destination without receiving authority there; the
+transfer picker exposes only destination IDs/names, not its inventory.
+
+## Inter-branch stock transfers (Phase 5)
+
+Open **Stock transfers → Dispatch & history** (`/ui/transfers`) or
+**In transit / receive** (`/ui/transfers?status=IN_TRANSIT`). The detail screen
+(`/ui/transfers/{id}`) shows each source batch, classification snapshot, original
+receipt/expiry date, destination batch, arrival quantities and discrepancy reason.
+
+- Dispatch positive **base-unit** quantities from an active source to a different
+  active destination. Unexpired batches are allocated FEFO (dated first, then
+  receipt date/creation/ID). All product lines succeed together or roll back.
+  Source quantity and carrying value leave immediately; destination stock does
+  not exist until arrival. The transfer is explicitly `IN_TRANSIT`.
+- Receive **once, finally**, accounting for every allocation exactly once:
+  `receivedQuantity + shortageQuantity + damagedQuantity = dispatched quantity`.
+  All values are nonnegative base-unit quantities. Any shortage/damage needs a
+  nonblank reason. Zero received is valid for full loss. Shortages and damaged/
+  rejected goods are permanent loss, not destination stock or future receivables.
+  There are intentionally no drafts, partial receipts, cancellation, or reversal.
+- Positive arrival creates one destination batch per source allocation, with
+  the same product, lot and original receipt/expiry dates; arrival time is the
+  receive operation timestamp. `source_batch_id` preserves the full chain through
+  repeated transfers. Product/type/variety/grade/base-unit text is snapshotted on
+  the source batch, copied to the destination and allocation (catalogue edits do
+  not rewrite batch classifications or transfer history). Existing batches get
+  current catalogue text at V8 upgrade; earlier catalogue edits cannot be
+  reconstructed. The source batch retains original input-unit, conversion and
+  purchase-cost snapshots. Destination input is base units, with its derived
+  unit cost; exact carrying value is authoritative, not the rounded unit cost.
+  Arrival can record now-expired or deactivated products without stranding a
+  dispatched load; normal sale eligibility still excludes them.
+- Carrying costs are moved, not purchased again. Received cost is proportional
+  to dispatched cost, rounded in the original currency; loss absorbs the
+  remaining cents. Full depletion/arrival carries the exact remaining value.
+  Unknown legacy costs remain unknown and are never silently treated as zero.
+  Costs and purchase unit costs are null in transfer JSON and absent in HTML
+  without `PROFIT_VIEW`.
+- Transfer list/read requires `TRANSFER_VIEW` and scope at either endpoint.
+  Branch-scoped access excludes inactive branches; business-wide viewers retain
+  history. Receipt needs an active destination, but does not require a still-active
+  source, so already-dispatched goods can arrive after source deactivation.
+- Branch locks, acquired in deterministic ID order, serialize against receipts,
+  adjustments, spoilage and sales on both PostgreSQL and H2. Each posting has a
+  globally unique request UUID and actor/payload fingerprint. An identical retry
+  returns the existing result; changed payload/actor or an already-finalized
+  receipt with a new UUID conflicts. Retry an uncertain result with unchanged
+  details and the same UUID; check history before changing an uncertain request.
+  Workspace IDs survive failed requests in the current page, not a page reload.
+- `TRANSFER_OUT` and `TRANSFER_IN` are stock ledger movements, never sales or
+  revenue/profit events, and cannot be reversed by the generic stock-reversal API
+  or UI. Existing stock-loss reports remain net batch spoilage; permanent transit
+  shortages/damage and their costs appear in **transfer detail/history**, not
+  disguised as sales or duplicated as spoilage.
+- Dispatch/receipt audit events target the transfer; discrepancy events target
+  the immutable finalized allocation with its reason and loss quantities.
+
+JSON endpoints (session authentication and CSRF required for POST):
+
+| Method / path | Payload / result |
+| --- | --- |
+| `GET /api/transfers/entry` | Dispatch pickers (source scope, active destination directory, active products/base units) |
+| `POST /api/transfers` | `{requestId, sourceId, destinationId, notes?, lines:[{productId, quantity}]}` → detail |
+| `GET /api/transfers?status=IN_TRANSIT&page=0` | Scoped history, optionally `RECEIVED`; 50 transfers/page |
+| `GET /api/transfers/{id}` | Scoped allocation/traceability detail |
+| `POST /api/transfers/{id}/receive` | `{requestId, notes?, allocations:[{allocationId, receivedQuantity, shortageQuantity, damagedQuantity, reason?}]}` → final detail |
+
+Dispatch accepts up to 100 product lines and 1000 source-batch allocations;
+larger dispatches must be split. Quantities support six decimal places. As with
+inventory and sales, response quantities/costs are decimal strings to avoid
+browser floating-point precision loss.
 
 Browser redirects need no permissive CORS configuration. No application CORS
 policy or wildcard Web Origins is needed for this same-origin backend.
@@ -1014,6 +1097,15 @@ atomic insufficient-stock failures, branch-derived selling, own/manager
 report scope, customer defaults, references, full voids, cent-conserving
 carrying values, concurrent oversell/void prevention, uncapped report totals,
 UTC posting/refund boundaries and V4-to-V5 opening-cost preservation.
+Phase 5 adds integrated transfer dispatch/arrival/loss, FEFO/rollback, scoped
+permissions and hidden costs, full-loss/unknown-cost handling, retry and
+concurrent dispatch/receive protection, transfer-versus-sale oversell prevention,
+generic reversal denial, ledger conservation and V7-to-V8 migration checks.
+Run the focused transfer and regression checks with:
+
+```powershell
+.\mvnw.cmd "-Dtest=TransferIntegrationTests,InventoryMigrationTests,InventoryIntegrationTests,SalesIntegrationTests,AccessIntegrationTests" test
+```
 No live PostgreSQL/Keycloak instance or real credentials are needed.
 
 An opt-in headless Chrome/Chromium browser test exercises consecutive
@@ -1023,10 +1115,13 @@ visible validation errors and mobile overflow. It also exercises first login,
 pending-request review/approval without copying user IDs, branch reassignment and paid checkout,
 Walk-ins/new customer selection,
 manual M-Pesa recording, a manager's full refund, sales/performance/profit
-reports and dashboard cards. It uses the local signed OIDC
+reports and dashboard cards, transfer dispatch/arrival, missing-loss-reason
+feedback, permanent allocation loss and mobile transfer history. It uses the local signed OIDC
 fixture, an isolated browser profile and the browser's built-in debugging
-protocol; no Selenium driver or browser download is required. Point
-`ui.browser` to your installed compatible Chromium executable:
+protocol; no Selenium driver or browser download is required.
+Isolated browser profiles are created under `target/browser-profiles` (removed
+by `clean`), not your normal Chrome profile.
+Point `ui.browser` to your installed compatible Chromium executable:
 
 ```powershell
 .\mvnw.cmd "-Dtest=CatalogueBrowserTests" "-Dui.browser=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" test
@@ -1042,10 +1137,10 @@ To repeat the access/onboarding and sales integration cases and the entire Chrom
 `PG_TEST_USERNAME` and `PG_TEST_PASSWORD` to disposable test credentials, then run:
 
 ```powershell
-.\mvnw.cmd "-Dtest=PostgresAccessIntegrationTests,PostgresSalesIntegrationTests,PostgresBrowserTests" "-Dui.browser=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" verify
+.\mvnw.cmd "-Dtest=PostgresAccessIntegrationTests,PostgresSalesIntegrationTests,PostgresTransferIntegrationTests,PostgresBrowserTests" "-Dui.browser=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" verify
 ```
 
-These checks use separate `access_e2e`, `sales_e2e` and `browser_e2e` schemas and **delete
+These checks use separate `access_e2e`, `sales_e2e`, `transfers_e2e` and `browser_e2e` schemas and **delete
 their fixture data**. Never point them at a live database. The harness rejects
 non-loopback URLs, other database names and URL parameters before database
 initialization. PostgreSQL checks are skipped unless `PG_TEST_URL` is set;
@@ -1099,6 +1194,5 @@ The automated OIDC fixture is not started by this command. H2 data disappears
 when the process exits, so bootstrap is needed for every new manual H2 process.
 No PostgreSQL credentials are required in this mode.
 
-Next module: Sales and payments, using the branch inventory ledger for safe
-stock deductions. Inter-branch transfers, accounting, farm tracking and AI
-remain later modules.
+Next modules: accounting, farm tracking and AI. Sales/payments and inter-branch
+transfers already use the shared branch inventory ledger.

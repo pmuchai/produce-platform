@@ -18,7 +18,6 @@ import com.primeroot.platform.access.StaffService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import tools.jackson.databind.JsonNode;
@@ -33,8 +32,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 	@Autowired
 	private StaffService staff;
 
-	@TempDir
-	Path profile;
+	Path profile = Path.of("target", "browser-profiles", java.util.UUID.randomUUID().toString()).toAbsolutePath();
 
 	@Test
 	void catalogueAndInventoryFormsPostConsecutiveChangesWithExactDecimalsAndVisibleErrors() throws Exception {
@@ -98,6 +96,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 				var productId = session.body(session.get("/api/catalogue")).get("products").get(0).get("id").asText();
 				verifyInventoryWorkspace(chrome, branchId, productId);
 				verifySalesWorkspace(chrome, session, branchId, productId);
+				verifyTransferWorkspace(chrome, session, branchId, productId);
 				chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
 					"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
 				assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
@@ -368,6 +367,58 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			"width", 1440, "height", 1000, "deviceScaleFactor", 1, "mobile", false));
 	}
 
+	private void verifyTransferWorkspace(Chrome chrome, Browser admin, String branchId, String productId) throws Exception {
+		var destinationResponse = admin.mutate("POST", "/api/branches",
+			Map.of("code", "UI_TRANSFER_DEST", "name", "UI Transfer Destination", "active", true));
+		assertThat(destinationResponse.statusCode()).withFailMessage(destinationResponse.body()).isEqualTo(201);
+		var destinationId = admin.body(destinationResponse).get("id").asText();
+		var stock = admin.mutate("POST", "/api/inventory/receipts", Map.of("requestId", java.util.UUID.randomUUID(),
+			"branchId", branchId, "receivedDate", java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString(),
+			"source", "UI transfer farm", "currency", "KES", "lines", java.util.List.of(Map.of("productId", productId,
+				"unitId", "10000000-0000-0000-0000-000000000001", "quantity", "20", "purchaseUnitCost", "10", "lotCode", "UI_TRANSFER"))));
+		assertThat(stock.statusCode()).withFailMessage(stock.body()).isEqualTo(201);
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 1440, "height", 1000, "deviceScaleFactor", 1, "mobile", false));
+		navigateSidebar(chrome, "transfers", "/ui/transfers");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#transfer-dispatch');
+			f.elements.sourceId.value = '%s'; f.elements.destinationId.value = '%s';
+			f.elements.productId.value = '%s'; f.elements.quantity.value = '999';
+			f.requestSubmit(); return true; })()
+			""".formatted(branchId, destinationId, productId));
+		chrome.await("document.querySelector('#notice').classList.contains('error')");
+		assertThat(chrome.evaluate("document.querySelector('#notice').textContent").asText()).contains("Insufficient");
+		chrome.evaluate("""
+			const transferForm = document.querySelector('#transfer-dispatch');
+			transferForm.elements.quantity.value = '2'; transferForm.requestSubmit(); true
+			""");
+		chrome.await("document.querySelector('#transfer-receive') !== null && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('main').innerText").asText()).contains("IN_TRANSIT", "UI Transfer Destination");
+		chrome.evaluate("""
+			(() => { const rows = [...document.querySelectorAll('.transfer-arrival')];
+			rows.forEach((row, index) => {
+			  row.querySelector('[name="receivedQuantity"]').value = index === 0 ? '0' : row.dataset.quantity;
+			  row.querySelector('[name="shortageQuantity"]').value = index === 0 ? row.dataset.quantity : '0';
+			});
+			const f = document.querySelector('#transfer-receive'); f.querySelector('[type="checkbox"]').checked = true;
+			f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('#notice').classList.contains('error')");
+		assertThat(chrome.evaluate("document.querySelector('#notice').textContent").asText()).contains("reason");
+		chrome.evaluate("""
+			document.querySelector('.transfer-arrival [name="reason"]').value = 'UI full allocation loss';
+			document.querySelector('#transfer-receive').requestSubmit(); true
+			""");
+		chrome.await("document.querySelector('#transfer-receive') === null && document.querySelector('main').innerText.includes('RECEIVED') && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('main').innerText").asText()).contains("UI full allocation loss");
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		navigateSidebar(chrome, "transfers", "/ui/transfers");
+		assertThat(chrome.evaluate("document.querySelector('main').innerText").asText()).contains("RECEIVED", "UI Transfer Destination");
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+	}
+
 	private void loginChrome(Chrome chrome, String subject, java.util.List<String> permissions, String name) throws Exception {
 		chrome.command("Network.clearBrowserCookies", Map.of());
 		PROVIDER.identity(subject, permissions, OidcTestProvider.Fault.NONE);
@@ -597,6 +648,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 
 		Chrome() throws Exception {
 			try {
+				Files.createDirectories(profile);
 				process = new ProcessBuilder(System.getProperty("ui.browser"), "--headless", "--disable-gpu",
 					"--no-first-run", "--disable-background-networking", "--disable-extensions",
 					"--remote-debugging-port=0", "--user-data-dir=" + profile, "about:blank")
