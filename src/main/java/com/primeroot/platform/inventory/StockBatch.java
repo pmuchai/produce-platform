@@ -67,7 +67,7 @@ public class StockBatch {
 	private BigDecimal quantity;
 	@Column(length = 3, updatable = false)
 	private String currency;
-	@Column(precision = 19, scale = 6, updatable = false)
+	@Column(precision = 38, scale = 6, updatable = false)
 	private BigDecimal purchaseUnitCost;
 	@Column(precision = 38, scale = 6, updatable = false)
 	private BigDecimal receivedCost;

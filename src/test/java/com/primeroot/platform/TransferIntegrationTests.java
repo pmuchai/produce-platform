@@ -146,6 +146,30 @@ class TransferIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void receiptPersistsDerivedBaseUnitCostBeyondPreviousPrecision() throws Exception {
+		try (var admin = browser()) {
+			fixture(admin);
+			var packaging = admin.mutate("PUT", "/api/catalogue/packaging",
+				Map.of("productId", product, "unitId", unit("CRATE"), "quantityInBaseUnit", "0.000001"));
+			assertThat(packaging.statusCode()).withFailMessage(packaging.body()).isEqualTo(200);
+			var receiptLine = Map.of("productId", product, "unitId", unit("CRATE"), "quantity", "1",
+				"purchaseUnitCost", "10000000", "lotCode", "HIGH_UNIT_COST");
+			var receiptResponse = admin.mutate("POST", "/api/inventory/receipts", Map.of("requestId", UUID.randomUUID(),
+				"branchId", source, "receivedDate", today.toString(), "source", "Farm", "currency", "KES",
+				"lines", List.of(receiptLine)));
+			assertThat(receiptResponse.statusCode()).withFailMessage(receiptResponse.body()).isEqualTo(201);
+			var dispatched = admin.body(admin.mutate("POST", "/api/transfers", dispatch("0.000001")));
+			var received = admin.mutate("POST", "/api/transfers/" + dispatched.get("transfer").get("id").asText()
+				+ "/receive", receipt(arrivals(dispatched)));
+			assertThat(received.statusCode()).withFailMessage(received.body()).isEqualTo(200);
+			var purchaseUnitCost = jdbc.queryForObject(
+				"SELECT purchase_unit_cost FROM stock_batches WHERE branch_id = ?",
+				BigDecimal.class, UUID.fromString(destination));
+			assertThat(purchaseUnitCost).isEqualByComparingTo("10000000000000");
+		}
+	}
+
+	@Test
 	void insufficientStockInvalidRoutesAndIncompleteReceiptsRollBackAtomically() throws Exception {
 		try (var admin = browser()) {
 			fixture(admin);
