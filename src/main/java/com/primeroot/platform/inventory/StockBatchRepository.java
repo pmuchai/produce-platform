@@ -1,6 +1,7 @@
 package com.primeroot.platform.inventory;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -18,6 +19,16 @@ public interface StockBatchRepository extends JpaRepository<StockBatch, UUID> {
 		""")
 	List<StockBatch> saleCandidates(@Param("branch") UUID branch, @Param("product") UUID product,
 			@Param("today") LocalDate today, Pageable pageable);
+
+	@Query("""
+		select b from StockBatch b where b.branch.id = :branch and b.product.id = :product
+		and b.quantity > 0 and b.receivedDate <= :saleDate
+		and (b.expiryDate is null or b.expiryDate >= :saleDate)
+		and (b.sourceBatch is null or b.operation.postedAt < :until)
+		order by case when b.expiryDate is null then 1 else 0 end, b.expiryDate,
+			b.receivedDate, b.createdAt, b.id
+		""")
+	List<StockBatch> saleCandidatesOnDate(UUID branch, UUID product, LocalDate saleDate, Instant until, Pageable pageable);
 
 	@Query("""
 		select b.branch.id, b.product.id, sum(b.quantity) from StockBatch b

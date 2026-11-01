@@ -1,6 +1,7 @@
 package com.primeroot.platform.sales;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
 import com.primeroot.platform.access.Branch;
@@ -28,6 +29,7 @@ public class Sale implements Persistable<UUID> {
 	@Column(nullable = false, length = 120) private String sellerName;
 	@Column(nullable = false, length = 120) private String branchName;
 	@Column(nullable = false, length = 3) private String currency;
+	@Column(nullable = false, updatable = false) private LocalDate saleDate;
 	@Column(length = 120) private String customer;
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 16) private PaymentMethod paymentMethod;
@@ -42,13 +44,14 @@ public class Sale implements Persistable<UUID> {
 	}
 
 	Sale(StockOperation operation, StaffUser actor, SalesDtos.CreateRequest request, String currency,
-			BigDecimal total, BigDecimal cost, String reference) {
+			BigDecimal total, BigDecimal cost, String reference, LocalDate saleDate) {
 		id = operation.getId();
 		branch = operation.getBranch();
 		sellerId = actor.getId();
 		sellerName = actor.getFullName();
 		branchName = branch.getName();
 		this.currency = currency;
+		this.saleDate = saleDate;
 		customer = request.customer() == null ? "Walk-ins" : request.customer().trim();
 		paymentMethod = request.paymentMethod();
 		paymentReference = reference;
@@ -69,6 +72,7 @@ public class Sale implements Persistable<UUID> {
 	public String getSellerName() { return sellerName; }
 	public String getBranchName() { return branchName; }
 	public String getCurrency() { return currency; }
+	public LocalDate getSaleDate() { return saleDate; }
 	public String getCustomer() { return customer; }
 	public PaymentMethod getPaymentMethod() { return paymentMethod; }
 	public String getPaymentReference() { return paymentReference; }

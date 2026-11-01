@@ -195,6 +195,8 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			[...document.querySelectorAll('.sidebar .nav-group')].map(group => group.id).join(',')
 			""").asText()).isEqualTo("nav-dashboard,nav-sales,nav-reports");
 		assertThat(chrome.evaluate("document.querySelector('#sale-customer').value").asText()).isEqualTo("Walk-ins");
+		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.saleDate.value").asText())
+			.isEqualTo(java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString());
 		assertThat(chrome.evaluate("document.querySelector('#sale-form [name=\"branchId\"]') === null").asBoolean()).isTrue();
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('#sale-form');
@@ -268,6 +270,39 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		navigateSidebar(chrome, "dashboard", "/home");
 		assertThat(chrome.evaluate("document.querySelector('#sales-card').innerText").asText()).contains("90.00");
 		assertThat(chrome.evaluate("document.querySelector('#staff-sales-card').innerText").asText()).contains("1 salespeople");
+		var saleDate = java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(1).toString();
+		var recoveredStock = admin.mutate("POST", "/api/inventory/receipts", Map.of("requestId", java.util.UUID.randomUUID(),
+			"branchId", branchId, "receivedDate", saleDate, "source", "Downtime receipt", "currency", "KES",
+			"lines", java.util.List.of(Map.of("productId", productId, "unitId", "10000000-0000-0000-0000-000000000001",
+				"quantity", "1", "purchaseUnitCost", "10", "lotCode", "UI_BACKDATED", "expiryDate", saleDate))));
+		assertThat(recoveredStock.statusCode()).withFailMessage(recoveredStock.body()).isEqualTo(201);
+		loginChrome(chrome, "ui-sales-subject", java.util.List.of("SALE_CREATE"), "UI Salesperson");
+		navigateSidebar(chrome, "sales", "/ui/sales");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#sale-form');
+			f.elements.productId.value = '%s'; f.elements.unitId.value = '10000000-0000-0000-0000-000000000001';
+			f.elements.quantity.value = '0.5'; f.elements.unitPrice.value = '120';
+			document.querySelector('#quote-sale').click(); return true; })()
+			""".formatted(productId));
+		chrome.await("document.querySelector('#sale-total').textContent.includes('Total: KES 60.00')");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#sale-form'); f.elements.paymentConfirmed.checked = true;
+			f.elements.saleDate.value = '%s'; f.elements.saleDate.dispatchEvent(new Event('input')); return true; })()
+			""".formatted(saleDate));
+		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.paymentConfirmed.checked").asBoolean()).isFalse();
+		assertThat(chrome.evaluate("document.querySelector('#sale-total').textContent").asText()).contains("Calculate the total");
+		chrome.evaluate("document.querySelector('#quote-sale').click(); true");
+		chrome.await("document.querySelector('#sale-total').textContent.includes('Total: KES 60.00')");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#sale-form'); f.elements.paymentConfirmed.checked = true;
+			f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('#sale-receipt') !== null && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('#sale-receipt').innerText").asText())
+			.contains("Sale date (UTC): " + saleDate, "Recorded at:", "UI_BACKDATED");
+		var recoveredReport = admin.body(admin.get("/api/sales/reports/sales?start=" + saleDate + "&end=" + saleDate));
+		assertThat(recoveredReport.get("totals").get(0).get("revenue").asText()).isEqualTo("60.00");
+		loginChrome(chrome, OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS, "Browser Administrator");
 	}
 
 	private void verifyStaffAssignments(Chrome chrome, Browser admin, String branchId) throws Exception {

@@ -9,7 +9,8 @@
   <div th:replace="~{layout :: notice}"></div>
   <article class="panel" id="sale-receipt">
     <h2 th:text="${receipt.receiptNumber}"></h2>
-    <p><strong th:text="${receipt.status}"></strong> / <span th:text="${receipt.postedAt}"></span> (UTC)</p>
+    <p><strong th:text="${receipt.status}"></strong> / Sale date (UTC): <span th:text="${receipt.saleDate}"></span></p>
+    <p>Recorded at: <span th:text="${receipt.postedAt}"></span> (UTC)</p>
     <p th:text="'Branch: ' + ${receipt.branch} + ' / Salesperson: ' + ${receipt.seller}"></p>
     <p th:text="'Customer: ' + ${receipt.customer}"></p>
     <p th:text="'Payment: ' + ${receipt.paymentMethod} + (${receipt.paymentReference != null} ? ' / ' + ${receipt.paymentReference} : '')"></p>

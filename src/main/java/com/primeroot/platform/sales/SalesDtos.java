@@ -2,10 +2,12 @@ package com.primeroot.platform.sales;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Digits;
@@ -20,7 +22,8 @@ public final class SalesDtos {
 
 	public record CreateRequest(@NotNull UUID requestId, @Size(max = 120) String customer,
 		@NotNull Sale.PaymentMethod paymentMethod, @Size(max = 120) String paymentReference,
-		@Size(max = 500) String notes, @NotNull @Size(min = 1, max = 50) List<@NotNull @Valid LineRequest> lines) {
+		@Size(max = 500) String notes, @NotNull @Size(min = 1, max = 50) List<@NotNull @Valid LineRequest> lines,
+		@JsonInclude(JsonInclude.Include.NON_NULL) LocalDate saleDate) {
 	}
 
 	public record LineRequest(@NotNull UUID productId, @NotNull UUID unitId,
@@ -29,7 +32,8 @@ public final class SalesDtos {
 		@Positive @Digits(integer = 13, fraction = 6) BigDecimal measuredBaseQuantity) {
 	}
 
-	public record QuoteRequest(@NotNull @Size(min = 1, max = 50) List<@NotNull @Valid LineRequest> lines) {
+	public record QuoteRequest(@NotNull @Size(min = 1, max = 50) List<@NotNull @Valid LineRequest> lines,
+		LocalDate saleDate) {
 	}
 
 	public record Quote(String currency, @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal total) {
@@ -63,7 +67,7 @@ public final class SalesDtos {
 	}
 
 	public record Receipt(UUID id, String receiptNumber, UUID branchId, String branch, UUID sellerId,
-		String seller, String customer, Instant postedAt, String currency, Sale.PaymentMethod paymentMethod,
+		String seller, String customer, Instant postedAt, LocalDate saleDate, String currency, Sale.PaymentMethod paymentMethod,
 		String paymentReference, String notes, String status,
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal total,
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal cost,

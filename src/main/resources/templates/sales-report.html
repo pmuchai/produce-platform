@@ -31,7 +31,7 @@
   </section>
   <section class="panel">
     <h2 th:text="${report.kind.title}"></h2>
-    <p th:unless="${report.kind.stock}" class="hint">Sales are positive on their posting date; full voids/refunds are negative on their own posting date. Counts include both, even when the net amount is zero.</p>
+    <p th:unless="${report.kind.stock}" class="hint">Sales are positive on their selected UTC sale date; full voids/refunds are negative on their actual posting date. Receipts retain the actual recording timestamp. Counts include both, even when the net amount is zero.</p>
     <p th:if="${report.kind.path == 'stock-losses'}" class="hint">Net spoilage including its reversals. New losses use snapshotted carrying costs; older known-cost losses use prorated receipt purchase costs. Inventory corrections are visible in Stock movements, not disguised as sales.</p>
     <div class="table-wrap"><table><thead><tr><th>Group / UTC date</th><th>Detail</th><th>Currency</th><th>Base quantity</th><th th:unless="${report.kind.stock}">Sales / refunds</th><th th:unless="${report.kind.stock}">Net revenue</th><th th:if="${canProfit}">Cost</th><th th:if="${canProfit and !report.kind.stock}">Gross profit</th><th th:if="${report.kind.stock}">Unknown-cost entries</th></tr></thead>
       <tbody><tr th:each="row : ${report.rows}">
