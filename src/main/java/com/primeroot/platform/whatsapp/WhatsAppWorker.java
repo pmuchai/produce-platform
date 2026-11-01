@@ -76,11 +76,10 @@ public class WhatsAppWorker {
 					principal = null;
 				}
 			}
-			if (principal != null && !authorization.stillLinked(message.sender(), message.linkId(), principal)) {
-				reply = "WhatsApp access changed. Sign in to Prime Root and renew linking.";
-			}
 			if (store.sending(message)) {
-				transport.send(message.sender(), reply);
+				if (principal == null) transport.send(message.sender(), reply);
+				else authorization.dispatchIfStillLinked(message.sender(), message.linkId(), principal, reply,
+					finalReply -> transport.send(message.sender(), finalReply));
 				store.finish(message, "SENT");
 			}
 		}

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -21,6 +22,8 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 import com.primeroot.platform.access.StaffService;
+import com.primeroot.platform.security.StaffPrincipal;
+import com.primeroot.platform.whatsapp.WhatsAppAuthorization;
 import com.primeroot.platform.whatsapp.WhatsAppCrypto;
 import com.primeroot.platform.whatsapp.WhatsAppTransport;
 import com.primeroot.platform.whatsapp.WhatsAppWorker;
@@ -30,9 +33,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -52,6 +57,7 @@ class WhatsAppIntegrationTests extends OidcTestSupport {
 	@Autowired private JdbcTemplate jdbc;
 	@Autowired private WhatsAppWorker worker;
 	@Autowired private WhatsAppCrypto crypto;
+	@MockitoSpyBean private WhatsAppAuthorization authorization;
 	@MockitoBean private WhatsAppTransport transport;
 	private final List<String> replies = new CopyOnWriteArrayList<>();
 	private String branch;
@@ -304,6 +310,39 @@ class WhatsAppIntegrationTests extends OidcTestSupport {
 			assertThat(post(expired, signature(expired)).statusCode()).isEqualTo(200);
 			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM whatsapp_messages WHERE id = 'expired-webhook'", Integer.class)).isZero();
 			assertThat(worker.processOne()).isFalse();
+		}
+	}
+
+	@Test
+	void concurrentUnlinkBeforeDispatchPreventsQueuedReportDelivery() throws Exception {
+		try (var admin = browser(); var pool = Executors.newSingleThreadExecutor()) {
+			admin.adminLogin();
+			var sender = "254711111120";
+			link(admin, sender);
+			var raw = json.writeValueAsBytes(payload("unlink-before-dispatch", sender, "sales today", "123456789"));
+			assertThat(post(raw, signature(raw)).statusCode()).isEqualTo(200);
+
+			var beforeDispatch = new CountDownLatch(1);
+			var resumeDispatch = new CountDownLatch(1);
+			doAnswer(invocation -> {
+				beforeDispatch.countDown();
+				if (!resumeDispatch.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("dispatch test timed out");
+				invocation.callRealMethod();
+				return null;
+			}).when(authorization).dispatchIfStillLinked(anyString(), any(UUID.class), any(StaffPrincipal.class),
+				anyString(), any());
+
+			var result = pool.submit(worker::processOne);
+			try {
+				assertThat(beforeDispatch.await(10, TimeUnit.SECONDS)).isTrue();
+				assertThat(admin.mutate("DELETE", "/api/whatsapp/link", null).statusCode()).isEqualTo(200);
+			}
+			finally {
+				resumeDispatch.countDown();
+			}
+
+			assertThat(result.get(10, TimeUnit.SECONDS)).isTrue();
+			assertThat(replies.getLast()).isEqualTo(sender + "|WhatsApp access changed. Sign in to Prime Root and renew linking.");
 		}
 	}
 

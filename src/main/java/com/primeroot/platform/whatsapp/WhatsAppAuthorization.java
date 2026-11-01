@@ -1,6 +1,7 @@
 package com.primeroot.platform.whatsapp;
 
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import com.primeroot.platform.access.StaffUserRepository;
 import com.primeroot.platform.security.StaffPrincipal;
@@ -53,5 +54,13 @@ public class WhatsAppAuthorization {
 			&& link.securityVersion() == principal.getSecurityVersion()).isPresent()
 			&& staff.findById(principal.getStaffId()).filter(user -> user.isActive()
 				&& user.getSecurityVersion() == principal.getSecurityVersion()).isPresent();
+	}
+
+	@Transactional
+	public void dispatchIfStillLinked(String sender, UUID linkId, StaffPrincipal principal, String reply,
+			Consumer<String> dispatch) {
+		store.lockStaff(principal.getStaffId());
+		dispatch.accept(stillLinked(sender, linkId, principal) ? reply
+			: "WhatsApp access changed. Sign in to Prime Root and renew linking.");
 	}
 }
