@@ -106,7 +106,7 @@ public class SalesService {
 	@Transactional
 	public SalesDtos.Receipt create(SalesDtos.CreateRequest request) {
 		var actor = access.requirePermission(Permission.SALE_CREATE);
-		var branch = lock(sellingBranch().getId());
+		var branch = lock(sellingBranch().getId(), true);
 		var hash = PostingFingerprint.of(json, StockOperation.Kind.SALE, actor.getId(), request);
 		if (previous(request.requestId(), hash)) return receipt(request.requestId());
 		if (request.customer() != null && request.customer().isBlank()) throw invalid("Choose Walk-ins or enter a customer name");
@@ -150,7 +150,7 @@ public class SalesService {
 		var actor = access.requirePermission(Permission.SALE_VOID);
 		var branchId = sales.branchId(id)
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Sale not found"));
-		lock(branchId);
+		lock(branchId, false);
 		var sale = find(id);
 		var hash = PostingFingerprint.of(json, StockOperation.Kind.SALE_VOID, actor.getId(), new VoidIdentity(id, request));
 		if (previous(request.requestId(), hash)) return receipt(id);
@@ -203,11 +203,11 @@ public class SalesService {
 		return sales.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Sale not found"));
 	}
 
-	private Branch lock(UUID id) {
+	private Branch lock(UUID id, boolean requireActive) {
 		access.requireBranch(id);
 		var branch = branches.lockForStockUpdate(id)
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Branch not found"));
-		if (!branch.isActive()) throw conflict("This branch is inactive");
+		if (requireActive && !branch.isActive()) throw conflict("This branch is inactive");
 		return branch;
 	}
 

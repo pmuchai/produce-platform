@@ -236,11 +236,14 @@ class SalesIntegrationTests extends OidcTestSupport {
 			reversal.remove("refundReference");
 			assertThat(manager.mutate("POST", "/api/sales/" + id + "/void", reversal).statusCode()).isEqualTo(400);
 			reversal.put("refundReference", "BANK-REFUND-001");
-			assertThat(manager.mutate("POST", "/api/sales/" + id + "/void", reversal).statusCode()).isEqualTo(200);
-			assertThat(manager.mutate("POST", "/api/sales/" + id + "/void", reversal).statusCode()).isEqualTo(200);
+			var branchEtag = admin.get("/api/branches/" + branch).headers().firstValue("ETag").orElseThrow();
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/branches/" + branch,
+				Map.of("code", "MAIN", "name", "Main branch", "active", false), branchEtag).statusCode()).isEqualTo(200);
+			assertThat(admin.mutate("POST", "/api/sales/" + id + "/void", reversal).statusCode()).isEqualTo(200);
+			assertThat(admin.mutate("POST", "/api/sales/" + id + "/void", reversal).statusCode()).isEqualTo(200);
 			reversal.put("requestId", UUID.randomUUID());
-			assertThat(manager.mutate("POST", "/api/sales/" + id + "/void", reversal).statusCode()).isEqualTo(409);
-			var report = manager.body(manager.get("/api/sales/reports/payments"));
+			assertThat(admin.mutate("POST", "/api/sales/" + id + "/void", reversal).statusCode()).isEqualTo(409);
+			var report = admin.body(admin.get("/api/sales/reports/payments"));
 			assertThat(report.get("totals").get(0).get("revenue").asText()).isEqualTo("0.00");
 			assertThat(report.get("totals").get(0).get("cost").asText()).isEqualTo("0.00");
 			assertThat(report.get("totals").get(0).get("voids").asLong()).isEqualTo(1);
