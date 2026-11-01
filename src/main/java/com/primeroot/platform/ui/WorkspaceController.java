@@ -17,6 +17,9 @@ import com.primeroot.platform.inventory.StockTransfer;
 import com.primeroot.platform.sales.SalesService;
 import com.primeroot.platform.sales.SalesReportService;
 import com.primeroot.platform.sales.SalesReports;
+import com.primeroot.platform.finance.Expense;
+import com.primeroot.platform.finance.ExpenseService;
+import com.primeroot.platform.finance.NetProfitService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -33,10 +36,12 @@ public class WorkspaceController {
 	private final SalesService sales;
 	private final SalesReportService salesReports;
 	private final TransferService transfers;
+	private final ExpenseService expenses;
+	private final NetProfitService netProfit;
 
 	public WorkspaceController(StaffService staff, BranchService branches, CatalogueService catalogue,
 			AuditService audit, InventoryService inventory, SalesService sales, SalesReportService salesReports,
-			TransferService transfers) {
+			TransferService transfers, ExpenseService expenses, NetProfitService netProfit) {
 		this.staff = staff;
 		this.branches = branches;
 		this.catalogue = catalogue;
@@ -45,6 +50,8 @@ public class WorkspaceController {
 		this.sales = sales;
 		this.salesReports = salesReports;
 		this.transfers = transfers;
+		this.expenses = expenses;
+		this.netProfit = netProfit;
 	}
 
 	private void workspace(Model model, String page) {
@@ -55,7 +62,7 @@ public class WorkspaceController {
 		model.addAttribute("page", page);
 		model.addAttribute("navGroup", switch (page) {
 			case "receipts", "stock" -> "stock";
-			case "stock-report", "movement-report", "audit-report", "sales-report" -> "reports";
+			case "stock-report", "movement-report", "audit-report", "sales-report", "net-profit" -> "reports";
 			case "sale", "receipt" -> "sales";
 			case "catalogue", "branches", "configurations" -> "configurations";
 			default -> page;
@@ -79,6 +86,8 @@ public class WorkspaceController {
 			&& !global && current.staff().branchIds().size() == 1);
 		model.addAttribute("voidSale", permissions.contains(Permission.SALE_VOID));
 		model.addAttribute("canProfit", permissions.contains(Permission.PROFIT_VIEW));
+		model.addAttribute("canExpenses", permissions.contains(Permission.EXPENSE_VIEW));
+		model.addAttribute("createExpense", permissions.contains(Permission.EXPENSE_CREATE));
 		model.addAttribute("salesReportKinds", java.util.Arrays.stream(SalesReports.Kind.values()).filter(kind ->
 			kind.isFinancial() ? permissions.contains(Permission.PROFIT_VIEW) : kind == SalesReports.Kind.LOSSES
 				? permissions.contains(Permission.STOCK_VIEW) : permissions.contains(Permission.SALES_VIEW)
@@ -93,6 +102,9 @@ public class WorkspaceController {
 		workspace(model, "dashboard");
 		var period = DashboardPeriod.resolve(start, end);
 		model.addAttribute("period", period);
+		if (Boolean.TRUE.equals(model.getAttribute("canProfit"))) {
+			model.addAttribute("netProfit", netProfit.report(null, period, 0));
+		}
 		if (Boolean.TRUE.equals(model.getAttribute("canSales"))) {
 			var report = salesReports.report(SalesReports.Kind.SALES, null, period, 0);
 			model.addAttribute("sales", report);
@@ -129,6 +141,36 @@ public class WorkspaceController {
 	}
 
 	private record SalesTrend(String currency, java.math.BigDecimal revenue, java.math.BigDecimal change) {
+	}
+
+	@GetMapping("/ui/expenses")
+	public String expenses(Model model, @RequestParam(required = false) UUID branchId,
+			@RequestParam(required = false) Expense.Category category,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
+			@RequestParam(defaultValue = "0") int page) {
+		var period = DashboardPeriod.resolve(start, end);
+		model.addAttribute("history", expenses.history(branchId, category, period, page));
+		model.addAttribute("period", period);
+		model.addAttribute("selectedBranch", branchId);
+		model.addAttribute("selectedCategory", category);
+		model.addAttribute("categories", Expense.Category.values());
+		workspace(model, "expenses");
+		if (Boolean.TRUE.equals(model.getAttribute("createExpense"))) model.addAttribute("entry", expenses.entry());
+		return "expenses";
+	}
+
+	@GetMapping("/ui/reports/net-profit")
+	public String netProfit(Model model, @RequestParam(required = false) UUID branchId,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
+			@RequestParam(defaultValue = "0") int page) {
+		var period = DashboardPeriod.resolve(start, end);
+		model.addAttribute("report", netProfit.report(branchId, period, page));
+		model.addAttribute("period", period);
+		model.addAttribute("selectedBranch", branchId);
+		workspace(model, "net-profit");
+		return "net-profit";
 	}
 
 	@GetMapping("/ui/transfers")

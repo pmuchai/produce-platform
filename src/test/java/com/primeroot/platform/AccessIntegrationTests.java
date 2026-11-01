@@ -237,8 +237,10 @@ class AccessIntegrationTests extends OidcTestSupport {
 			new NavigationCase(true, List.of("AUDIT_VIEW"), List.of("dashboard", "reports")),
 			new NavigationCase(false, List.of("TRANSFER_VIEW"), List.of("dashboard", "transfers")),
 			new NavigationCase(false, List.of("TRANSFER_DISPATCH"), List.of("dashboard")),
+			new NavigationCase(false, List.of("EXPENSE_VIEW"), List.of("dashboard", "expenses")),
+			new NavigationCase(false, List.of("EXPENSE_CREATE"), List.of("dashboard")),
 			new NavigationCase(true, List.of(), List.of("dashboard")),
-			new NavigationCase(true, ALL_PERMISSIONS, List.of("dashboard", "stock", "transfers", "reports", "users", "configurations")));
+			new NavigationCase(true, ALL_PERMISSIONS, List.of("dashboard", "stock", "transfers", "expenses", "reports", "users", "configurations")));
 		try (var admin = browser()) {
 			admin.adminLogin();
 			var branch = createBranch(admin, "sales");
@@ -524,7 +526,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 	void migrationsRetainExternalIdentitySchemaAndEnforceForeignKeys() {
 		assertThat(jdbc.queryForList(
 			"SELECT \"version\" FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", String.class))
-			.containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
+			.containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
 		assertThat(jdbc.queryForList(
 			"SELECT UPPER(table_name) FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA()", String.class))
 			.contains("BRANCHES", "STAFF_USERS", "USER_BRANCHES", "AUDIT_EVENTS", "STAFF_ACCESS_REQUESTS",

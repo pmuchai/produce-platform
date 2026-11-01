@@ -13,6 +13,7 @@
   };
   if (new URLSearchParams(window.location.search).get('saved') === '1') {
     showNotice(window.location.pathname.includes('/ui/stock') ? 'Stock changes posted.'
+      : window.location.pathname.endsWith('/ui/expenses') ? 'Expense change recorded.'
       : window.location.pathname.endsWith('/ui/users') ? 'Staff approval and branch assignments saved.'
       : window.location.pathname.endsWith('/ui/branches') ? 'Branch changes saved.' : 'Catalogue changes saved.');
   }
@@ -67,6 +68,50 @@
   };
 
   const staffForm = document.getElementById('staff-form');
+  const expenseForm = document.getElementById('expense-form');
+  if (expenseForm) {
+    const updateReference = () => {
+      expenseForm.elements.paymentReference.required = expenseForm.elements.paymentMethod.value !== 'CASH';
+    };
+    expenseForm.elements.paymentMethod.addEventListener('change', updateReference);
+    updateReference();
+  }
+  [expenseForm, ...document.querySelectorAll('.expense-void')].filter(Boolean).forEach(form => {
+    let identity;
+    let requestId;
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const create = form === expenseForm;
+      const payload = create ? {
+        branchId: form.elements.branchId.value, paidDate: form.elements.paidDate.value,
+        category: form.elements.category.value, description: form.elements.description.value,
+        payee: form.elements.payee.value, amount: form.elements.amount.value,
+        paymentMethod: form.elements.paymentMethod.value, paymentReference: form.elements.paymentReference.value
+      } : {reason: form.elements.reason.value};
+      const button = form.querySelector('button[type="submit"]');
+      try {
+        const nextIdentity = JSON.stringify(payload);
+        if (identity !== nextIdentity) {
+          requestId = newRequestId();
+          identity = nextIdentity;
+        }
+        button.disabled = true;
+        await request(create ? 'api/expenses' : `api/expenses/${form.dataset.expenseId}/void`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({...payload, requestId})
+        });
+        const destination = new URL(base + 'ui/expenses', window.location.origin);
+        destination.search = create
+          ? new URLSearchParams({branchId: payload.branchId, start: payload.paidDate, end: payload.paidDate}).toString()
+          : window.location.search;
+        destination.searchParams.set('saved', '1');
+        window.location.assign(destination.href);
+      } catch (error) {
+        showNotice(error.message, true);
+        button.disabled = false;
+      }
+    });
+  });
   const transferDispatch = document.getElementById('transfer-dispatch');
   const transferReceive = document.getElementById('transfer-receive');
   if (transferDispatch) {
