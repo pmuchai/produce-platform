@@ -112,7 +112,8 @@
         <td th:text="${movement.quantity} + ' ' + ${movement.baseUnit}"></td>
         <td><span th:text="${movement.source}"></span><small th:text="${movement.notes}"></small></td>
         <td><span th:if="${movement.reversed}">Reversed</span>
-          <button th:if="${page == 'stock' and adjustStock and !movement.reversed and movement.reversalOf == null}" type="button" class="secondary"
+          <span th:if="${movement.kind.name() == 'SALE' or movement.kind.name() == 'SALE_VOID'}">Use full sale void</span>
+          <button th:if="${page == 'stock' and adjustStock and !movement.reversed and movement.reversalOf == null and movement.kind.name() != 'SALE' and movement.kind.name() != 'SALE_VOID'}" type="button" class="secondary"
             data-reverse th:attr="data-id=${movement.id},data-branch=${movement.branchId}">Reverse</button></td>
       </tr><tr th:if="${inventory.movements.isEmpty()}"><td colspan="6">No movements in the selected interval.</td></tr></tbody>
     </table></div>

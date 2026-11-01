@@ -1,9 +1,6 @@
 package com.primeroot.platform.inventory;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -11,7 +8,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Currency;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -143,10 +139,13 @@ public class InventoryService {
 		}
 		var batch = batch(request.batchId(), branch.getId());
 		var quantity = kind == Kind.SPOILAGE ? request.quantity().negate() : request.quantity();
-		apply(batch, quantity);
+		var cost = changeCost(batch, quantity);
+		apply(batch, quantity, cost);
 		var operation = operations.saveAndFlush(new StockOperation(request.requestId(), branch, actor.getId(),
 			kind, hash, null, request.reason().trim()));
-		movements.save(new StockMovement(operation, batch, kind, quantity, null));
+		var movement = new StockMovement(operation, batch, kind, quantity, null);
+		movement.setCostChange(cost);
+		movements.save(movement);
 		record(operation);
 		return response(operation.getId());
 	}
@@ -161,14 +160,22 @@ public class InventoryService {
 		var original = movements.findById(request.movementId())
 			.filter(item -> item.getBatch().getBranch().getId().equals(branch.getId()))
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Stock movement not found in this branch"));
+		if (original.getKind() == Kind.SALE || original.getKind() == Kind.SALE_VOID) {
+			throw conflict("Sales stock can only be reversed through a full sale void");
+		}
 		if (original.getReversalOf() != null || movements.existsByReversalOfId(original.getId())) {
 			throw conflict("This movement is a reversal or has already been reversed");
 		}
 		var quantity = original.getQuantity().negate();
-		apply(original.getBatch(), quantity);
+		var originalCost = original.getCostChange() == null ? original.getBatch().proportionalCost(original.getQuantity())
+			: original.getCostChange();
+		var cost = originalCost == null ? null : originalCost.negate();
+		apply(original.getBatch(), quantity, cost);
 		var operation = operations.saveAndFlush(new StockOperation(request.requestId(), branch, actor.getId(),
 			Kind.REVERSAL, hash, null, request.reason().trim()));
-		movements.save(new StockMovement(operation, original.getBatch(), original.getKind(), quantity, original));
+		var movement = new StockMovement(operation, original.getBatch(), original.getKind(), quantity, original);
+		movement.setCostChange(cost);
+		movements.save(movement);
 		record(operation);
 		return response(operation.getId());
 	}
@@ -273,7 +280,7 @@ public class InventoryService {
 		var ids = visible.stream().map(Branch::getId).filter(id -> branchId == null || id.equals(branchId)).toList();
 		var term = search == null || search.isBlank() ? null : search.trim().toLowerCase(Locale.ROOT);
 		var pageable = PageRequest.of(page, 100);
-		var result = ids.isEmpty() ? Page.<StockBatch>empty(pageable) : batches.search(ids, branchId, term, pageable);
+		var result = ids.isEmpty() ? Page.<StockBatch>empty(pageable) : batches.search(ids, "%" + (term == null ? "" : term) + "%", pageable);
 		var today = LocalDate.now(ZoneOffset.UTC);
 		return new BatchPage(result.getContent().stream().map(batch -> BatchResponse.from(batch, today)).toList(),
 			result.getTotalElements(), page, term == null ? "" : term);
@@ -291,10 +298,27 @@ public class InventoryService {
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Batch not found in this branch"));
 	}
 
-	private void apply(StockBatch batch, BigDecimal change) {
+	private BigDecimal changeCost(StockBatch batch, BigDecimal change) {
+		if (batch.getRemainingCost() == null) return null;
+		if (change.signum() > 0) return batch.proportionalCost(change);
+		if (batch.getQuantity().signum() == 0) throw conflict("Insufficient stock in this batch");
+		return batch.getRemainingCost().multiply(change)
+			.divide(batch.getQuantity(), Currency.getInstance(batch.getCurrency()).getDefaultFractionDigits(),
+				java.math.RoundingMode.HALF_UP);
+	}
+
+	private void apply(StockBatch batch, BigDecimal change, BigDecimal cost) {
 		var balance = batch.getQuantity().add(change);
 		if (balance.signum() < 0) throw conflict("Insufficient stock in this batch");
 		if (balance.compareTo(MAXIMUM) > 0) throw invalid("Batch quantity exceeds the supported quantity range");
+		if (cost != null && batch.getRemainingCost() != null) {
+			var value = batch.getRemainingCost().add(cost);
+			if (value.signum() < 0) throw conflict("This reversal exceeds the remaining batch cost; review intervening stock corrections");
+			if (balance.signum() == 0 && value.signum() != 0) {
+				throw conflict("This reversal leaves a carrying value without stock; review intervening stock corrections");
+			}
+			batch.setRemainingCost(value);
+		}
 		batch.setQuantity(balance);
 	}
 
@@ -342,13 +366,7 @@ public class InventoryService {
 	}
 
 	private String fingerprint(Kind kind, UUID actor, Object request) {
-		try {
-			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-				.digest((kind + ":" + actor + ":" + json.writeValueAsString(request)).getBytes(StandardCharsets.UTF_8)));
-		}
-		catch (NoSuchAlgorithmException exception) {
-			throw new IllegalStateException("SHA-256 is unavailable", exception);
-		}
+		return PostingFingerprint.of(json, kind, actor, request);
 	}
 
 	private static ResponseStatusException invalid(String detail) {

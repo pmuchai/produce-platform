@@ -5,12 +5,31 @@
 <a class="skip" href="#main">Skip to content</a><aside th:replace="~{layout :: sidebar}"></aside>
 <main id="main" class="workspace">
   <header th:replace="~{layout :: header('Branches', 'Branches visible within your assigned scope')}"></header>
-  <section class="panel"><div class="table-scroll"><table>
-    <thead><tr><th>Code</th><th>Name</th><th>Address</th><th>Status</th></tr></thead><tbody>
+  <div th:replace="~{layout :: notice}"></div>
+  <p class="hint" th:unless="${manageBranches}">Read-only branches. BRANCH_MANAGE is required to make changes.</p>
+  <p class="hint" th:if="${manageBranches and !createBranch}">You can edit your assigned branches. Creating a new branch requires business-wide staff access.</p>
+  <section id="branches" class="panel">
+    <h2>Branches</h2>
+    <div class="table-scroll"><table>
+    <thead><tr><th>Code</th><th>Name</th><th>Address</th><th>Status</th><th th:if="${manageBranches}">Action</th></tr></thead><tbody>
     <tr th:each="branch : ${branches}"><td th:text="${branch.code}"></td><td th:text="${branch.name}"></td>
-      <td th:text="${branch.address}"></td><td th:text="${branch.active ? 'Active' : 'Inactive'}"></td></tr>
-    <tr th:if="${branches.isEmpty()}"><td colspan="4">No visible branches.</td></tr>
+      <td th:text="${branch.address}"></td><td th:text="${branch.active ? 'Active' : 'Inactive'}"></td>
+      <td th:if="${manageBranches}"><button type="button" class="secondary" data-edit="branches" th:attr="data-id=${branch.id}">Edit branch</button></td></tr>
+    <tr th:if="${branches.isEmpty()}"><td colspan="5">No visible branches.</td></tr>
   </tbody></table></div></section>
+  <details th:if="${manageBranches}" id="branches-editor" class="panel" open th:hidden="${!createBranch}">
+    <summary>Add / edit branch</summary>
+    <p class="hint">Use a unique branch code, name and optional address. Deactivating a branch immediately removes it from branch-scoped access and prevents new sales there.</p>
+    <form data-resource="branches" th:attr="data-create-allowed=${createBranch}" class="editor">
+      <input type="hidden" name="id">
+      <input type="hidden" name="version">
+      <label>Branch code<input name="code" required pattern="[A-Za-z0-9][A-Za-z0-9_-]{1,31}" minlength="2" maxlength="32" placeholder="e.g. NAIROBI"></label>
+      <label>Branch name<input name="name" required maxlength="120" placeholder="e.g. Nairobi Branch"></label>
+      <label>Address (optional)<input name="address" maxlength="255"></label>
+      <label class="check"><input type="checkbox" name="active" checked>Active branch</label>
+      <div class="form-actions"><button type="submit">Add branch</button><button type="reset" class="secondary">Cancel / clear</button><output class="form-message" aria-live="polite"></output></div>
+    </form>
+  </details>
 </main>
 </body>
 </html>

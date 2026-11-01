@@ -5,6 +5,8 @@ spoilage control. Phase 0 provides the backend foundation; Phase 1 provides
 Branches and Access. Phase 2 adds Catalogue and Units, maintenance screens and
 a shared, permission-aware workspace. Phase 3 adds branch inventory, receipts,
 batch traceability, receipt purchase costs, spoilage, corrections and stock reporting.
+Phase 4 adds branch-bound paid sales, customer selection, automatic FEFO stock
+allocation, receipts, full-sale voids, gross profit and staff/branch sales reporting.
 
 ## Requirements
 
@@ -37,6 +39,10 @@ The application implements these capabilities:
 | `STOCK_RECEIVE` | Post receipts into active branches within scope |
 | `STOCK_SPOILAGE` | Record batch losses within branch scope |
 | `STOCK_ADJUST` | Post signed corrections, reverse movements and configure stock minimums within scope |
+| `SALE_CREATE` | Post paid sales in exactly one assigned branch; quote totals and view own receipts/performance |
+| `SALES_VIEW` | Read all sales and staff performance within assigned branch scope |
+| `SALE_VOID` | Void a whole sale within scope after all goods are returned and a full manual refund is confirmed |
+| `PROFIT_VIEW` | View costs/margins on sales receipts and financial reports, including current stock valuation |
 
 Permissions are independent: managing does not implicitly grant viewing.
 Only these exact permission codes in the validated ID token's `app_roles`
@@ -48,8 +54,10 @@ profile and the permission catalogue.
 
 Local staff records explicitly approve an immutable `(issuer, subject)` pair,
 and retain a local username, display name, active flag, branch assignments and
-`allBranches` scope. The Keycloak user ID is the token's subject. No identity
-is automatically created or matched by email/username. `allBranches` grants
+`allBranches` scope. The Keycloak user ID is the token's subject. A verified
+first login with at least one known application permission creates a pending
+access request, not an approved staff account. No identity is matched by
+email/username and no business access is automatically granted. `allBranches` grants
 data scope, not permissions. A global `USER_MANAGE` holder can approve and
 change staff scope but cannot change anyone's Keycloak roles or credentials.
 Treat that permission as privileged; restrict its assignment in Keycloak.
@@ -75,8 +83,8 @@ For local development, start Keycloak on port 8081 and create:
 3. Exact valid redirect URI
    `http://localhost:8080/login/oauth2/code/keycloak` and exact valid post-logout
    redirect URI `http://localhost:8080/`. Do not use wildcards.
-4. The eleven client permission roles listed above. Create a composite `ADMIN`
-   role containing all eleven. Create other job-function composites from the
+4. The fifteen client permission roles listed above. Create a composite `ADMIN`
+   role containing all fifteen. Create other job-function composites from the
    relevant permissions and assign them to staff.
 5. A **User Client Role** protocol mapper for client `produce-platform`, claim
    `app_roles`, JSON type `String`, multivalued, included in the **ID token**.
@@ -85,7 +93,7 @@ For local development, start Keycloak on port 8081 and create:
    If Full Scope Allowed is disabled, explicitly map the required roles.
 6. A test staff user with a permanent Keycloak credential and the composite
    `ADMIN` assignment. Copy that user's **ID**, not a role ID or client ID.
-   Use Keycloak's token evaluation to check that `app_roles` includes the eleven
+   Use Keycloak's token evaluation to check that `app_roles` includes the fifteen
    effective permission codes.
 
 **Upgrading from Phase 1:** add `CATALOGUE_VIEW` and `CATALOGUE_MANAGE` client
@@ -108,6 +116,42 @@ Browser redirects need no permissive CORS configuration. No application CORS
 policy or wildcard Web Origins is needed for this same-origin backend.
 Keep the client secret private. Local HTTP is development-only; deployed
 Keycloak and the application must use HTTPS and exact production URLs.
+
+### Testing from a phone on the LAN
+
+Connect the phone to the same trusted Wi-Fi/network and open the computer's
+LAN address, for example `http://192.168.100.206:8080/`, not `localhost`.
+Both the app and Keycloak must listen on a LAN-reachable interface, with
+ports 8080 and 8081 allowed on the trusted private network.
+
+Use one consistent Keycloak issuer reachable by both devices:
+
+```powershell
+$env:KEYCLOAK_ISSUER_URI = "http://192.168.100.206:8081/realms/produce-platform"
+$env:SESSION_COOKIE_SECURE = "false"
+```
+
+In the `produce-platform` client, add the exact valid redirect URI
+`http://192.168.100.206:8080/login/oauth2/code/keycloak` and valid post-logout
+redirect URI `http://192.168.100.206:8080/`. Keep the existing localhost
+application redirects if needed; the **Keycloak issuer** must remain consistent
+regardless of which application address is used. Do not add wildcard redirects
+or disable issuer validation.
+
+Staff approval binds the exact `(issuer, subject)` pair. If the same existing
+realm/users previously used a localhost issuer, changing to the LAN issuer
+requires a **one-time, backed-up identity-issuer migration**, preserving staff
+IDs, subjects, status and branch assignments, incrementing `security_version`
+and `version`, and recording audit events. Verify the realm and user IDs are
+unchanged before migrating; never automatically match users by subject alone,
+email or username across issuers. Recreated realms/users need explicit new
+approval instead. In-memory H2 loses approvals when its process ends.
+
+HTTP is only for trusted local testing; it does not encrypt passwords,
+sessions or business data. Production requires HTTPS and secure cookies.
+Stock and sale request IDs use native `crypto.randomUUID()` when available,
+or a cryptographically random UUID v4 via `crypto.getRandomValues()` on LAN
+HTTP, where browsers do not expose `randomUUID()`. Retry IDs are retained.
 
 ## Local PostgreSQL and startup
 
@@ -251,6 +295,8 @@ to the identity provider.
 | POST | `/api/branches` | `BRANCH_MANAGE` and global scope; 201 with Location |
 | PUT | `/api/branches/{id}` | `BRANCH_MANAGE` within scope; requires the current `If-Match` ETag |
 | GET | `/api/users` | `USER_VIEW` and global scope |
+| GET | `/api/users/access-requests` | Pending verified identities for the configured issuer; `USER_VIEW` and global scope |
+| POST | `/api/users/access-requests/{id}/approve` | `USER_MANAGE` and global scope; identity comes from the stored request, not submitted fields |
 | POST | `/api/users` | `USER_MANAGE` and global scope; 201 with Location |
 | PUT | `/api/users/{id}` | `USER_MANAGE` and global scope; requires the current `If-Match` ETag |
 | GET | `/api/audit-events` | `AUDIT_VIEW` and global scope; latest 100 events |
@@ -262,6 +308,15 @@ the application never collects passwords. Authorization Code + PKCE remains
 unchanged. UI branding is **Prime Root**; existing technical application, realm and
 client identifiers remain unchanged.
 
+New eligible identities are redirected to the public informational
+`/access-pending` page after authentication, without establishing an
+authenticated application session. It explains the approval process and has
+a retry sign-in button. Repeat attempts reuse the same pending identity and
+do not create duplicate requests. Invalid tokens, missing/malformed role
+claims, new identities without application permissions and deactivated staff
+do not enter this queue. Existing approved staff continue to sign in normally,
+including approved accounts with no effective permissions.
+
 The left sidebar uses expandable parent sections. Click a parent (or use
 Enter/Space on its heading) to reveal its children. The current section opens
 automatically and its active child is highlighted.
@@ -269,16 +324,85 @@ automatically and its active child is highlighted.
 | Parent | Children |
 | --- | --- |
 | Dashboard | Overview |
-| Sales | New sale (coming later) |
+| Sales | New sale |
 | Stock | Receive stock, Stock Movement |
-| Reports | Stock levels, Stock movements, Audit activity |
-| User management | Staff directory |
+| Reports | Sales and receipts, Daily sales, Product sales, Branch sales, Staff performance, Customer sales, Payments and refunds, Gross profit / COGS, Stock valuation, Stock losses, Stock levels, Stock movements, Audit activity |
+| User management | Staff & branch assignments |
 | Configurations | Overview, Catalogue and units, Branches |
 
-Children without the required permissions are visibly unavailable, not
-functional links. Future modules are also marked as unavailable. User
-management currently lists approved staff; staff mutations remain available
-through the Phase 1 APIs. Catalogue maintenance has working create/edit forms.
+Parent sections are omitted when the current permissions and staff scope do not
+allow any of their business pages. A single-branch salesperson with only
+`SALE_CREATE` sees **Dashboard**, **Sales** and their permitted **Reports**,
+not Stock, User management or Configurations. The Sales parent appears only
+when New sale is available; business-wide and multiple-branch staff cannot sell.
+Children without the required permissions in otherwise accessible groups are
+disabled or omitted, not functional links. These navigation rules do not replace
+the existing server-side authorization checks.
+
+User management includes staff approval and branch assignment
+forms backed by the existing staff APIs. Catalogue maintenance has working
+create/edit forms.
+
+### Adding and maintaining branches
+
+Open **Configurations > Branches**. `BRANCH_VIEW` is needed to open the page;
+`BRANCH_MANAGE` enables editing within the staff member's branch scope.
+Business-wide staff with both permissions also see the **Add / edit branch**
+form immediately. Enter a unique code (2-32 letters, numbers, underscores or
+hyphens, starting with a letter/number), name and optional address, keep
+**Active branch** checked and click **Add branch**. Codes are stored uppercase.
+The new branch is then available in staff assignment and stock receiving.
+
+Use **Edit branch** to change details or activate/deactivate a branch.
+Version-checked updates prevent overwriting another administrator's changes.
+Deactivation immediately removes the branch from branch-scoped access and
+blocks selling there. Branch-scoped managers can edit assigned branches, but
+cannot create new branches. View-only staff see no maintenance controls.
+
+### Approving sales users and assigning branches
+
+Open **User management > Staff & branch assignments**. The directory requires
+business-wide `USER_VIEW`; approval/editing also requires `USER_MANAGE` and
+`BRANCH_VIEW` to load the branch choices.
+
+Create the enabled user and password in Keycloak first and assign the relevant
+`produce-platform` client permissions (`SALE_CREATE` for a salesperson).
+Ask the user to sign in once: they see **Awaiting administrator approval**.
+Their verified identity appears in **Pending access requests**.
+
+Click **Review request**, confirm the suggested local username/name and choose
+branch access. Keep **Single branch (required for sales)** and choose an active
+branch for a salesperson, or choose **Business-wide** for an administrator.
+Click **Approve access**. The user can then click **Check approval and sign in**
+on their pending page. A salesperson's branch is derived automatically at checkout.
+There is no user-ID copying, SQL or browser console in this normal onboarding flow.
+
+The request's issuer and subject are immutable; approval binds those stored
+values server-side, regardless of identity fields submitted by a client.
+Approval does not grant Keycloak roles or reactivate disabled staff. Pending
+identities are separate from approved staff and do not appear in staff counts.
+Requests are created/approved with audit events. Concurrent/repeated first
+logins are deduplicated, and duplicate approvals are rejected.
+
+Optional manual pre-approval is still available through **Approve staff / sales
+user** and the original API by entering a known Keycloak user ID. It also
+completes a matching pending request. Username collisions require the
+administrator to choose a different local username; identities are never
+merged or rebound by name.
+
+Use **Edit assignments** in the directory to change a staff member's name,
+active status or branch scope. Usernames and Keycloak identities are immutable.
+Edits use the record version; if another administrator changed it, reload the
+record before trying again. Multiple assigned branches and business-wide scope
+are supported for non-selling staff. Removing your own business-wide scope or
+deactivating yourself remains blocked.
+
+These forms approve application access only: they never create Keycloak users,
+passwords or permission assignments. Give sellers only the capabilities they
+need; `SALE_CREATE` includes their own receipts/performance, while `SALES_VIEW`
+allows other staff's sales in scope and `PROFIT_VIEW` exposes financial reports.
+Existing `STOCK_VIEW` also exposes receipt purchase costs. Role changes require
+a fresh sign-in.
 
 The dashboard defaults to Monday through today in **UTC**, with inclusive
 start/end date controls (maximum 366 days, no future dates). Global `AUDIT_VIEW`
@@ -286,8 +410,10 @@ shows the actual number of audit events in that interval and the absolute
 change against the preceding equal-length interval. Counts are not capped at
 100; the report shows the most recent 100 matching events and the total count.
 Sign-ins and administrative activity are explicitly not staff performance.
-Sales trends, branch performance and user performance remain unavailable
-until sales transactions exist. With `STOCK_VIEW`, real branch/product stock,
+Sales trends compare net revenue with the preceding equal-length interval,
+separately by currency. Branch/staff cards count actual attributed sales/refund
+activity, and the gross-profit card requires `PROFIT_VIEW`. Sellers without
+`SALES_VIEW` see only their own transactions. With `STOCK_VIEW`, real branch/product stock,
 receipts, spoilage comparisons, low-stock alerts and expiry warnings replace
 the inventory placeholders; no illustrative business figures are presented.
 
@@ -472,8 +598,9 @@ derived rate.
 
 These amounts are **original purchase costs, not current stock valuation**.
 Spoilage, adjustments and reversals change quantities but do not overwrite the
-original receipt cost. No landed-cost allocation, tax calculation, remaining
-stock valuation, cost-of-sales or profit calculation is introduced here.
+original receipt cost. Phase 4 adds a separate remaining carrying value and
+snapshotted cost-of-sales; the original receipt total remains immutable.
+No landed-cost allocation or tax calculation is introduced here.
 Amounts entered should represent the purchase price for that selected unit;
 separately allocated freight/taxes are not added by the application.
 
@@ -563,6 +690,177 @@ No sale deduction, inter-branch transfer workflow, selling-price management,
 remaining-stock valuation,
 supplier balances, customer receivables or automatic replenishment is
 implemented in Phase 3.
+
+## Phase 4: Sales and profit reports
+
+### Checkout and branch assignment
+
+Open **Sales > New sale** (`/ui/sales`). A salesperson must have `SALE_CREATE`,
+`allBranches=false` and **exactly one assigned active branch**. The server
+derives the branch from the approved staff record; no branch selector is
+rendered or trusted in a sale request. Business-wide/multi-branch managers can
+report within scope but cannot sell until assigned a single selling branch.
+Changing staff scope continues to revoke existing sessions as in Phase 1.
+
+The customer dropdown defaults to **Walk-ins**. It suggests up to 500 distinct
+names previously used at that branch; **Add customer...** accepts a new name
+or one not in the suggestions. The selected name is saved on the receipt and
+appears in the customer report. These are transaction customer names, not a
+customer-credit/CRM register or globally exposed customer directory.
+
+Enter one or more products, selling units, quantities and unit selling prices.
+Fixed packaging and actual measured packaging use the same conversion service
+as receipts; the sale snapshots its conversion and product/unit labels.
+**Calculate total** validates the combined quantities across all lines against
+unexpired stock and computes the rounded payable amount on the server, without
+posting stock or reserving it. Recalculate after changing lines, receive the
+full payment, confirm it and post. A concurrent checkout can change availability;
+posting rechecks everything atomically.
+
+Cash, manually recorded M-Pesa and bank payments are supported. Noncash
+payments require a reference, normalized to uppercase and unique per payment
+method across the business, including voided sales. One reference cannot fund
+multiple receipts. No money is collected or refunded by this application.
+Credit, partial payments, split tenders, payment gateways, partial returns,
+maintained selling-price lists, discounts as separate adjustments, expenses,
+VAT calculation and eTIMS integration are outside this phase. Enter final
+unit prices; receipts explicitly state that they are **not tax invoices**.
+
+### Allocation, costing and corrections
+
+Sales allocate automatically by earliest expiry, then receipt date, creation
+time and batch ID; undated stock is last. The expiry date is the last sellable
+day in UTC. Expired stock remains physical inventory but is never allocated.
+Allocation continues beyond the first 100 batches. Insufficient stock, an
+allocated unknown-cost batch or a different-currency batch rejects the entire
+sale. Unknown legacy costs are not assumed to be zero or silently bypassed.
+There is no batch selector or automatic negative-stock posting.
+
+V5 initializes known batches' **remaining carrying value** from original
+receipt cost and remaining/original base quantities, rounded directly in the
+batch currency; unknown costs remain null. This is an opening valuation,
+not reconstructed historical COGS. Subsequent sales allocate the current
+batch carrying value proportionally with half-up currency rounding. Residual
+cents remain with stock and a full depletion consumes its exact remaining
+value. Spoilage/corrections also update carrying value and snapshot signed
+cost changes. Positive corrections use the original receipt cost basis;
+they are audited inventory gains, not new purchases.
+
+Sale lines and batch allocations snapshot their amounts. A branch-row lock
+serializes sales with receiving, corrections, spoilage and voids. Stock,
+carrying values, allocations, payment record, sale and audit commit together.
+UUID `requestId` values use the same actor/payload-sensitive idempotency
+mechanism as inventory; retries do not post twice. After an uncertain result,
+retry unchanged without refreshing/clearing the form or issuing a new ID.
+
+Each posted sale has a printable `PR-<UUID>` receipt. The original branch,
+salesperson/customer names, quantities, applied conversions, price and batch
+allocations are retained. Sales responses hide cost/profit fields without
+`PROFIT_VIEW`; original inventory receipt costs continue to be visible through
+`STOCK_VIEW` as in Phase 3. Do not grant `STOCK_VIEW` where purchase costs
+must be confidential.
+
+`SALE_VOID` also permits inspecting an in-scope receipt to perform/review its
+correction, but does not grant cross-staff summary reports.
+It allows a **whole-sale void only** after all goods were physically
+returned and a full refund manually completed. Noncash refunds require a refund
+reference. A void restores the original batches and exact allocated costs,
+retains the original receipt and records the reason, actor and refund.
+Retries are safe and a second independent void is rejected. Sales movements
+cannot be reversed through the generic inventory reversal API.
+Reversals that would produce negative carrying value or a value without stock
+are rejected for review rather than silently discarding cost.
+
+### Reports and dashboard
+
+All reports are under **Reports**, never under operational Stock/Sales menus.
+Sales-only staff see their own sales and performance. `SALES_VIEW` grants
+branch-scoped cross-staff reporting; it does not grant costs. Financial
+reports require `PROFIT_VIEW`; stock losses require `STOCK_VIEW` and hide costs
+unless `PROFIT_VIEW` is also present. There is no role-name shortcut.
+
+| Report path under `/ui/reports/` | Contents |
+| --- | --- |
+| `sales` | Posted sales/refund ledger, receipt drill-down and total counts |
+| `daily-sales` | Daily UTC net revenue, counts and refunds |
+| `product-sales` | Base-unit quantities, revenue and optional cost/margin by product |
+| `branch-sales` | Revenue, receipt/refund counts and optional cost/margin by branch |
+| `staff-performance` | Attributed sales/refunds, revenue and optional cost/margin per salesperson and branch |
+| `customer-sales` | Revenue and receipt/refund counts by selected customer, including Walk-ins |
+| `payments` | Cash/M-Pesa/bank net receipts and manually recorded full refunds |
+| `profit` | Net revenue, COGS and gross profit by branch and currency |
+| `stock-valuation` | Current physical-stock carrying values, including expired stock, with unknown-cost entry counts |
+| `stock-losses` | Period spoilage less reversals, quantity and authorized known costs; legacy known losses use prorated receipt costs |
+| `stock`, `stock-movements`, `audit` | Existing stock balances/alerts, immutable movements and administrative audit |
+
+Date-filtered reports use inclusive UTC dates and an exclusive next-day
+boundary, default to this week and accept up to 366 days. Sales are recognized
+on their posting date; full refunds/COGS reversals are negative events on the
+void posting date. Voiding does not rewrite an earlier interval. Amounts are
+never combined across currencies. Product quantities remain in their own base
+units. Current stock valuation is explicitly **not historical** and has no
+date inputs. Its known-cost totals exclude unknown values, not substitute zero.
+SQL aggregation covers every matching transaction; detail/group rows are
+bounded to 100 per page and totals are not truncated with the page.
+
+**Gross profit = net sales revenue minus net allocated COGS.** It is not net
+business profit and does not subtract operating expenses, taxes or separately
+reported stock losses. Dashboard trend cards show absolute changes from the
+previous equal-length interval, including a zero-sales current interval;
+staff performance never counts sign-ins as sales.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/sales/entry` | Assigned selling branch, available catalogue choices and branch customer suggestions |
+| POST | `/api/sales/quote` | Validate `lines` and calculate total without reserving/posting stock |
+| POST | `/api/sales` | Post a paid sale, atomic stock/cost deductions and receipt |
+| GET | `/api/sales/{id}` | Authorized receipt and snapshotted batch allocations |
+| POST | `/api/sales/{id}/void` | Confirmed full refund/return and exact stock/cost restoration |
+| GET | `/api/sales/reports/{report-path}` | Same scoped reports as the UI; optional `branchId`, `start`, `end`, `page` |
+
+```json
+{
+  "requestId": "client-generated-uuid",
+  "customer": "Walk-ins",
+  "paymentMethod": "CASH",
+  "lines": [{
+    "productId": "product-uuid",
+    "unitId": "kg-unit-uuid",
+    "quantity": "75",
+    "unitPrice": "120"
+  }]
+}
+```
+
+Omitting `customer` defaults to Walk-ins. Noncash sales also supply
+`paymentReference`. A void supplies a new `requestId`, mandatory `reason`,
+`returnedAndRefunded=true` and, for noncash, `refundReference`.
+Monetary amounts and quantities are decimal strings, never binary floats.
+
+### Version 1.0 deployment checks
+
+Before using this phase live:
+
+1. Back up PostgreSQL and verify restoration. Rehearse V4-to-V6 on a restored
+   staging copy; check opening quantity/carrying-value totals and explicitly
+   resolve unknown-cost inventory before selling it. Do not reset production
+   data, edit applied migrations or invent costs to bypass the sales guard.
+2. Add the four new client permission roles above in Keycloak, include them
+   in the intended job-function composites/`app_roles` mapper and sign in
+   again. A salesperson needs `SALE_CREATE` and one assigned branch. A branch
+   supervisor typically needs `SALES_VIEW` and `SALE_VOID`; finance reporting
+   additionally needs `PROFIT_VIEW`. Grant global roles/scope only deliberately.
+3. Deploy/restart the new application artifact and keep credentials outside
+   source control. Use HTTPS, secure cookies, restricted database/network
+   access and production Keycloak configuration. Preserve tested backup,
+   monitoring, recovery and release rollback procedures.
+4. Reconcile opening stock, a real branch's sales/receipts, manually recorded
+   payments/refunds, stock losses, carrying values and COGS with the business.
+   Confirm VAT/eTIMS obligations separately; this is not a tax-invoicing system.
+5. Perform acceptance testing with actual Keycloak roles and representative
+   staff/branches on staging. Automated database/browser results are not a
+   blanket sign-off of production infrastructure or tax compliance. Set/tag
+   the final release version only after accepting that rollout.
 
 Branch creation/update uses:
 
@@ -657,6 +955,17 @@ constraints. Earlier batches preserve their quantities and unknown costs.
 New receipts require the costing fields at the API boundary. V1–V3 remain
 unchanged.
 
+`V5__sales_and_profit.sql` adds immutable sale/line/allocation data and a
+sales/refund event view, extends the stock ledger for sales/voids and adds
+remaining carrying values and signed movement cost changes. It preserves
+existing transactions and unknown receipt costs, initializes only opening
+known-cost valuations and creates no invented sales or historical profit.
+V1-V4 remain unchanged.
+
+`V6__staff_access_requests.sql` adds a uniquely issuer/subject-bound pending
+access-request table. It changes no existing approvals, branch assignments,
+stock or sales. New staff still require explicit administrator approval.
+
 The uncommitted Phase 1 migrations were consolidated before deployment, after
 confirming the local PostgreSQL database had no applied migrations or business
 tables. This V1 is for a fresh schema; it is **not** an upgrade from an earlier
@@ -686,6 +995,10 @@ authorization redirects, code exchange, client authentication, PKCE, state,
 nonce, signature, issuer/audience and token expiry. They also cover approved
 identities, permission mapping, branch isolation, CSRF, staff revocation,
 logout, validation, bootstrap safeguards, foreign keys and audit persistence.
+Onboarding coverage includes pending login without business access,
+concurrent request deduplication, privileged/CSRF-protected approval, immutable
+verified identity, failed-approval rollback, invalid claims/tokens, inactive
+staff and manual pre-approval compatibility.
 Phase 2 tests cover migration preservation, catalogue permissions, matching
 classifications, dependency deactivation, dimension safety, explicit packaging
 factors, catalogue templates and date-filtered dashboard/report boundaries.
@@ -696,12 +1009,21 @@ alerts and posting-date/as-of reporting. Receipt costing tests cover selected
 receiving units, measured packaging, KES rounding, zero/invalid/missing costs,
 retry identity, unchanged original amounts after stock losses, and V3-to-V4
 preservation of unknown legacy costs.
+Phase 4 adds FEFO and bounded multi-batch allocation, unit/packaging snapshots,
+atomic insufficient-stock failures, branch-derived selling, own/manager
+report scope, customer defaults, references, full voids, cent-conserving
+carrying values, concurrent oversell/void prevention, uncapped report totals,
+UTC posting/refund boundaries and V4-to-V5 opening-cost preservation.
 No live PostgreSQL/Keycloak instance or real credentials are needed.
 
 An opt-in headless Chrome/Chromium browser test exercises consecutive
 create/edit saves, table refreshes, exact packaging calculations, multi-line
 inventory receiving with unit/batch costs, spoilage, corrections, reversals, threshold editing,
-visible validation errors and mobile overflow. It uses the same local signed OIDC
+visible validation errors and mobile overflow. It also exercises first login,
+pending-request review/approval without copying user IDs, branch reassignment and paid checkout,
+Walk-ins/new customer selection,
+manual M-Pesa recording, a manager's full refund, sales/performance/profit
+reports and dashboard cards. It uses the local signed OIDC
 fixture, an isolated browser profile and the browser's built-in debugging
 protocol; no Selenium driver or browser download is required. Point
 `ui.browser` to your installed compatible Chromium executable:
@@ -712,6 +1034,25 @@ protocol; no Selenium driver or browser download is required. Point
 
 The browser test is skipped when that property is absent, keeping the normal
 test suite usable on machines without a browser.
+
+To repeat the access/onboarding and sales integration cases and the entire Chrome workflow on
+**PostgreSQL**, create a disposable, password-protected database named exactly
+`primeroot_phase4_test` on a loopback PostgreSQL server. Set `PG_TEST_URL`
+(`jdbc:postgresql://127.0.0.1:<port>/primeroot_phase4_test`),
+`PG_TEST_USERNAME` and `PG_TEST_PASSWORD` to disposable test credentials, then run:
+
+```powershell
+.\mvnw.cmd "-Dtest=PostgresAccessIntegrationTests,PostgresSalesIntegrationTests,PostgresBrowserTests" "-Dui.browser=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" verify
+```
+
+These checks use separate `access_e2e`, `sales_e2e` and `browser_e2e` schemas and **delete
+their fixture data**. Never point them at a live database. The harness rejects
+non-loopback URLs, other database names and URL parameters before database
+initialization. PostgreSQL checks are skipped unless `PG_TEST_URL` is set;
+the Chrome check additionally requires `ui.browser`. No Docker or new test
+dependency is required. Running `clean verify` with these variables and the
+browser property includes both H2 and PostgreSQL checks. PostgreSQL 18.6 was
+used for Phase 4's isolated database and browser verification.
 
 A second opt-in browser check verifies the actual Keycloak theme, including
 native username/password controls, invalid-credential feedback, password

@@ -1,6 +1,10 @@
 package com.primeroot.platform.access;
 
 public enum Permission {
+	SALE_CREATE("Post fully paid sales in exactly one assigned branch; view own sales and performance"),
+	SALES_VIEW("View sales and staff performance within the assigned branch scope"),
+	SALE_VOID("Void an entire sale after returned goods and a confirmed manual refund"),
+	PROFIT_VIEW("View purchase-cost, stock valuation and gross-profit reports within branch scope"),
 	STOCK_VIEW("View inventory, batches and movements within the assigned branch scope"),
 	STOCK_RECEIVE("Receive stock into branches within the assigned scope"),
 	STOCK_ADJUST("Correct stock, reverse movements and configure branch stock minimums"),

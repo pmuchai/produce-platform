@@ -19,7 +19,7 @@ import org.springframework.data.domain.Persistable;
 @Entity
 @Table(name = "stock_operations")
 public class StockOperation implements Persistable<UUID> {
-	public enum Kind { RECEIPT, ADJUSTMENT, SPOILAGE, REVERSAL }
+	public enum Kind { RECEIPT, ADJUSTMENT, SPOILAGE, REVERSAL, SALE, SALE_VOID }
 	@Id
 	private UUID id;
 	@ManyToOne(optional = false)
@@ -43,7 +43,7 @@ public class StockOperation implements Persistable<UUID> {
 	protected StockOperation() {
 	}
 
-	StockOperation(UUID id, Branch branch, UUID actorId, Kind kind, String hash, String source, String notes) {
+	public StockOperation(UUID id, Branch branch, UUID actorId, Kind kind, String hash, String source, String notes) {
 		this.id = id;
 		this.branch = branch;
 		this.actorId = actorId;

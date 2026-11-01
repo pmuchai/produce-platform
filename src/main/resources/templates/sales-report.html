@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head(${report.kind.title})}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header(${report.kind.title}, 'Actual transactions within your authorized branch scope')}"></header>
+  <p th:if="${report.ownSalesOnly}" class="notice">Your own attributed sales only. Other staff sales require SALES_VIEW.</p>
+  <p th:if="${report.kind.path == 'stock-valuation'}" class="notice">Current physical stock, including expired stock. This is not an as-of valuation; date filters do not apply.</p>
+  <p class="hint">Amounts remain separated by currency. Gross profit = net sales revenue minus net COGS, not net business profit. Stock losses are reported separately. Unknown costs are never treated as zero.</p>
+  <form method="get" th:action="@{${reportPath}}" class="date-filter panel">
+    <label>Branch<select name="branchId"><option value="">All accessible branches</option><option th:each="branch : ${report.branches}" th:value="${branch.id}" th:selected="${selectedBranch == branch.id}" th:text="${branch.name}"></option></select></label>
+    <th:block th:unless="${report.kind.path == 'stock-valuation'}">
+      <label>From (UTC)<input type="date" name="start" min="1970-01-01" th:max="${today}" th:value="${period.start}" required></label>
+      <label>To (UTC)<input type="date" name="end" min="1970-01-01" th:max="${today}" th:value="${period.end}" required></label>
+    </th:block>
+    <button type="submit">Apply filters</button>
+  </form>
+  <section class="grid">
+    <article class="card" th:each="total : ${report.totals}">
+      <h2 th:text="${total.currency}"></h2>
+      <th:block th:if="${total.revenue != null}">
+        <p class="metric" th:text="'Net sales: ' + ${total.revenue}"></p>
+        <p th:text="${total.receipts} + ' sales / ' + ${total.voids} + ' full refunds'"></p>
+      </th:block>
+      <p th:if="${canProfit and total.cost != null}" th:text="(${report.kind.stock} ? 'Known stock cost: ' : 'Net COGS: ') + ${total.cost}"></p>
+      <p th:if="${canProfit and total.grossProfit != null}" th:text="'Gross profit: ' + ${total.grossProfit}"></p>
+      <p th:if="${report.kind.stock and total.cost == null}" class="hint">Cost unavailable or not permitted; see unknown-cost counts below.</p>
+    </article>
+  </section>
+  <section class="panel">
+    <h2 th:text="${report.kind.title}"></h2>
+    <p th:unless="${report.kind.stock}" class="hint">Sales are positive on their posting date; full voids/refunds are negative on their own posting date. Counts include both, even when the net amount is zero.</p>
+    <p th:if="${report.kind.path == 'stock-losses'}" class="hint">Net spoilage including its reversals. New losses use snapshotted carrying costs; older known-cost losses use prorated receipt purchase costs. Inventory corrections are visible in Stock movements, not disguised as sales.</p>
+    <div class="table-wrap"><table><thead><tr><th>Group / UTC date</th><th>Detail</th><th>Currency</th><th>Base quantity</th><th th:unless="${report.kind.stock}">Sales / refunds</th><th th:unless="${report.kind.stock}">Net revenue</th><th th:if="${canProfit}">Cost</th><th th:if="${canProfit and !report.kind.stock}">Gross profit</th><th th:if="${report.kind.stock}">Unknown-cost entries</th></tr></thead>
+      <tbody><tr th:each="row : ${report.rows}">
+        <td><a th:if="${row.saleId != null}" th:href="@{/ui/sales/{id}(id=${row.saleId})}" th:text="${row.label}"></a><span th:unless="${row.saleId != null}" th:text="${row.label}"></span></td>
+        <td th:text="${row.detail}"></td><td th:text="${row.currency}"></td>
+        <td th:text="${row.quantity != null} ? ${row.quantity} + ' ' + ${row.unit} : '-'"></td>
+        <td th:unless="${report.kind.stock}" th:text="${row.receipts} + ' / ' + ${row.voids}"></td>
+        <td th:unless="${report.kind.stock}" th:text="${row.revenue}"></td>
+        <td th:if="${canProfit}" th:text="${row.cost != null} ? ${row.cost} : 'Cost unknown'"></td>
+        <td th:if="${canProfit and !report.kind.stock}" th:text="${row.grossProfit}"></td>
+        <td th:if="${report.kind.stock}" th:text="${row.unknownCosts}"></td>
+      </tr><tr th:if="${report.rows.isEmpty()}"><td colspan="9">No activity within these filters and your access scope.</td></tr></tbody>
+    </table></div>
+    <nav class="pagination" aria-label="Report pages">
+      <a th:if="${report.page > 0}" th:href="@{${reportPath}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${report.page - 1})}">Previous</a>
+      <span th:text="'Page ' + ${report.page + 1} + ' / ' + ${report.totalElements} + ' rows'"></span>
+      <a th:if="${(report.page + 1) * 100 < report.totalElements}" th:href="@{${reportPath}(start=${period.start},end=${period.end},branchId=${selectedBranch},page=${report.page + 1})}">Next</a>
+    </nav>
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('New sale')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('New sale', 'Fully paid sales, automatically allocated to your assigned branch')}"></header>
+  <div th:replace="~{layout :: notice}"></div>
+  <section class="panel">
+    <h2 th:text="${entry.branch}">Selling branch</h2>
+    <p class="hint">Your branch is assigned by your administrator, not selected at checkout. Stock is allocated earliest-expiry first; expired stock cannot be sold.</p>
+    <form id="sale-form" class="editor">
+      <div class="grid">
+        <label>Customer<select name="customer" id="sale-customer">
+          <option value="Walk-ins" selected>Walk-ins</option>
+          <option th:each="customer : ${entry.customers}" th:value="${customer}" th:text="${customer}"></option>
+          <option value="__new__">Add customer...</option>
+        </select></label>
+        <label id="new-customer-label" hidden>New customer name<input name="customerName" maxlength="120" disabled></label>
+        <label>Payment method<select name="paymentMethod"><option value="CASH">Cash</option><option value="MPESA">M-Pesa (manually recorded)</option><option value="BANK">Bank (manually recorded)</option></select></label>
+        <label>Payment reference<input name="paymentReference" maxlength="120"><span class="hint">Required for M-Pesa and bank payments.</span></label>
+      </div>
+      <p><strong th:text="${entry.currency}"></strong> prices are per selected selling unit. All prices are final; this is not a VAT/eTIMS tax invoice.</p>
+      <div id="sale-lines">
+        <div class="sale-line receipt-line">
+          <label>Product<select name="productId" required><option value="">Choose product</option><option th:each="product : ${entry.products}" th:value="${product.id}" th:text="${product.label}"></option></select></label>
+          <label>Selling unit<select name="unitId" required><option value="">Choose unit</option><option th:each="unit : ${entry.units}" th:value="${unit.id}" th:text="${unit.label}"></option></select></label>
+          <label>Quantity<input name="quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
+          <label>Unit selling price<input name="unitPrice" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
+          <label>Actual measured base quantity<input name="measuredBaseQuantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001"><span class="hint">Packaging only; leave blank to use a configured fixed conversion.</span></label>
+          <button type="button" class="secondary" data-remove-sale-line>Remove line</button>
+        </div>
+      </div>
+      <button type="button" class="secondary" id="add-sale-line">Add product line</button>
+      <label>Notes<textarea name="notes" maxlength="500" rows="2"></textarea></label>
+      <div class="form-actions"><button type="button" id="quote-sale" class="secondary">Calculate total</button><output id="sale-total" aria-live="polite">Calculate the total before receiving payment.</output></div>
+      <label class="check"><input name="paymentConfirmed" type="checkbox" required> I have received the full payment. This application records payments; it does not collect money.</label>
+      <p class="hint">The server computes final totals using exact decimals and currency rounding. Posting deducts stock immediately. After an uncertain response, retry unchanged; do not clear the form or submit a new sale.</p>
+      <div class="form-actions"><button type="submit">Post paid sale</button><span class="form-message" role="status" aria-live="polite"></span></div>
+    </form>
+  </section>
+</main>
+</body>
+</html>

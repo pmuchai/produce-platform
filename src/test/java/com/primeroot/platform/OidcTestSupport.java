@@ -59,6 +59,9 @@ abstract class OidcTestSupport {
 			if (callback.statusCode() != 302) {
 				return callback;
 			}
+			if (callback.headers().firstValue("Location").orElseThrow().endsWith("/access-pending")) {
+				return get("/access-pending");
+			}
 			assertThat(callback.headers().firstValue("Location").orElseThrow()).endsWith("/home");
 			var home = get(callback.headers().firstValue("Location").orElseThrow());
 			assertThat(home.statusCode()).withFailMessage(home.body()).isEqualTo(200);

@@ -9,12 +9,23 @@
   <h2 th:text="'Welcome, ' + ${current.staff.fullName}">Welcome</h2>
   <form th:replace="~{layout :: dates(@{/home})}"></form>
   <section aria-label="Business trends" class="grid four">
-    <article class="card pending"><p class="eyebrow">SALES TREND</p><h2>Not available yet</h2><p>Sales transactions and prior-interval comparisons arrive with the Sales module.</p></article>
+    <article class="card" th:if="${canSales}" id="sales-card"><p class="eyebrow">SALES TREND</p><h2>Net sales revenue</h2>
+      <p th:if="${sales.ownSalesOnly}" class="hint">Your own sales only</p>
+      <p th:each="trend : ${salesTrends}" th:text="${trend.currency} + ' ' + ${trend.revenue} + ' / change ' + ${trend.change} + ' vs previous equal-length interval'"></p>
+      <p th:if="${salesTrends.isEmpty()}">No sales in either interval.</p>
+      <a th:href="@{/ui/reports/daily-sales(start=${period.start},end=${period.end})}">View sales trend</a></article>
+    <article class="card pending" th:unless="${canSales}"><p class="eyebrow">SALES TREND</p><h2>No access</h2><p>Sales viewing or selling permission is required.</p></article>
     <article class="card" th:if="${canStock}"><p class="eyebrow">STOCK LEVELS</p><h2 th:text="${inventory.lowStockCount} + ' low-stock alerts'"></h2>
       <p th:text="${inventory.nearExpiryCount} + ' batches expired or due within seven days'"></p><a th:href="@{/ui/reports/stock(start=${period.start},end=${period.end})}">View stock report</a></article>
     <article class="card pending" th:unless="${canStock}"><p class="eyebrow">STOCK LEVELS</p><h2>No access</h2><p>Stock viewing permission is required.</p></article>
-    <article class="card pending"><p class="eyebrow">BRANCH PERFORMANCE</p><h2>Not available yet</h2><p>Branch revenue and stock efficiency require sales and stock transactions.</p></article>
-    <article class="card pending"><p class="eyebrow">USER PERFORMANCE</p><h2>Not available yet</h2><p>Staff sales performance requires attributed transactions. Sign-ins are not a performance score.</p></article>
+    <article class="card" th:if="${canSales}" id="branch-sales-card"><p class="eyebrow">BRANCH PERFORMANCE</p><h2 th:text="${sales.sellingBranches} + ' branches with sales activity'"></h2>
+      <p>Attributed sales and refunds within your scope and selected dates.</p><a th:href="@{/ui/reports/branch-sales(start=${period.start},end=${period.end})}">View branch sales</a></article>
+    <article class="card" th:if="${canSales}" id="staff-sales-card"><p class="eyebrow">STAFF PERFORMANCE</p><h2 th:text="${sales.sellingStaff} + ' salespeople with activity'"></h2>
+      <p>Based on actual attributed sales, not logins or administrative activity.</p><a th:href="@{/ui/reports/staff-performance(start=${period.start},end=${period.end})}">View staff performance</a></article>
+    <article class="card" th:if="${canSales and canProfit}" id="profit-card"><p class="eyebrow">GROSS PROFIT</p>
+      <p th:each="total : ${sales.totals}" th:text="${total.currency} + ' ' + ${total.grossProfit}"></p>
+      <p th:if="${sales.totals.isEmpty()}">No sales in the selected interval.</p>
+      <p class="hint">Net sales minus COGS; excludes expenses, tax and stock losses.</p><a th:href="@{/ui/reports/profit(start=${period.start},end=${period.end})}">View gross profit / COGS</a></article>
   </section>
   <section th:if="${canStock}" class="panel">
     <h2>Stock by branch and product</h2>
@@ -43,7 +54,7 @@
       <p class="hint">System activity in the selected dates, not sales or staff performance.</p>
       <a th:href="@{/ui/reports/audit(start=${period.start},end=${period.end})}">View activity report</a>
     </article>
-    <article class="card" th:unless="${canCatalogue or canBranches or canUsers or canAudit or canStock}">
+    <article class="card" th:unless="${canCatalogue or canBranches or canUsers or canAudit or canStock or canSales}">
       <h2>Your workspace is ready</h2><p>No summary dashboards are available for your current permissions and branch scope.</p>
     </article>
   </section>

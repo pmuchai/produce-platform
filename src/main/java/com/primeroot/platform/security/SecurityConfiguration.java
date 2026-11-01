@@ -44,7 +44,7 @@ public class SecurityConfiguration {
 		http
 			.csrf(Customizer.withDefaults())
 			.authorizeHttpRequests(authorize -> authorize
-				.requestMatchers(HttpMethod.GET, "/", "/login", "/actuator/health", "/api/auth/csrf",
+				.requestMatchers(HttpMethod.GET, "/", "/login", "/access-pending", "/actuator/health", "/api/auth/csrf",
 					"/assets/app.css", "/assets/app.js", "/assets/prime-root-mark.svg",
 					"/assets/produce-distribution.svg").permitAll()
 				.requestMatchers("/oauth2/authorization/keycloak", "/login/oauth2/code/keycloak").permitAll()
@@ -58,11 +58,19 @@ public class SecurityConfiguration {
 				.userInfoEndpoint(endpoint -> endpoint.oidcUserService(staffOidcUserService))
 				.successHandler((request, response, authentication) ->
 					response.sendRedirect(request.getContextPath() + "/home"))
-				.failureHandler((request, response, exception) -> errors.write(request, response,
-					exception instanceof OAuth2AuthenticationException oauth
-						&& "access_denied".equals(oauth.getError().getErrorCode())
-							? HttpStatus.FORBIDDEN : HttpStatus.UNAUTHORIZED,
-					"OIDC login failed or staff access is not approved")))
+				.failureHandler((request, response, exception) -> {
+					if (exception instanceof OAuth2AuthenticationException oauth
+							&& "staff_approval_pending".equals(oauth.getError().getErrorCode())) {
+						response.sendRedirect(request.getContextPath() + "/access-pending");
+					}
+					else {
+						errors.write(request, response,
+							exception instanceof OAuth2AuthenticationException oauth
+								&& "access_denied".equals(oauth.getError().getErrorCode())
+									? HttpStatus.FORBIDDEN : HttpStatus.UNAUTHORIZED,
+							"OIDC login failed or staff access is not approved");
+					}
+				}))
 			.logout(config -> config.logoutUrl("/api/auth/logout").logoutSuccessHandler(logout))
 			.exceptionHandling(exceptions -> exceptions
 				.authenticationEntryPoint((request, response, exception) -> {

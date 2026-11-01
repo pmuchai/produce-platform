@@ -42,7 +42,11 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		try (var session = browser()) {
 			session.adminLogin();
 			try (var chrome = new Chrome()) {
+				chrome.command("Page.addScriptToEvaluateOnNewDocument", Map.of("source",
+					"Object.defineProperty(globalThis.crypto, 'randomUUID', {value: undefined, configurable: true});"));
 				verifyPublicLogin(chrome);
+				assertThat(chrome.evaluate("typeof crypto.randomUUID === 'undefined' && typeof crypto.getRandomValues === 'function'")
+					.asBoolean()).isTrue();
 				chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/catalogue"));
 				chrome.await("document.title.startsWith('Catalogue') && document.readyState === 'complete'");
 				chrome.evaluate("""
@@ -90,12 +94,10 @@ class CatalogueBrowserTests extends OidcTestSupport {
 					f.elements.name.value = 'Duplicate'; f.requestSubmit(); return true; })()
 					""");
 				chrome.await("document.querySelector('form[data-resource=\"types\"] .form-message').classList.contains('error')");
-				var branchResponse = session.mutate("POST", "/api/branches", Map.of(
-					"code", "UI_STOCK", "name", "UI Stock Branch", "active", true));
-				assertThat(branchResponse.statusCode()).isEqualTo(201);
-				var branchId = session.body(branchResponse).get("id").asText();
+				var branchId = verifyBranchWorkspace(chrome, session);
 				var productId = session.body(session.get("/api/catalogue")).get("products").get(0).get("id").asText();
 				verifyInventoryWorkspace(chrome, branchId, productId);
+				verifySalesWorkspace(chrome, session, branchId, productId);
 				chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
 					"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
 				assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
@@ -111,6 +113,267 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/"));
 		chrome.await("location.pathname === '/home' && document.readyState === 'complete'");
 		assertThat(chrome.evaluate("document.querySelector('.brand').textContent").asText()).isEqualTo("Prime Root");
+	}
+
+	private String verifyBranchWorkspace(Chrome chrome, Browser admin) throws Exception {
+		navigateSidebar(chrome, "configurations", "/ui/branches");
+		assertThat(chrome.evaluate("document.querySelector('#branches-editor').open").asBoolean()).isTrue();
+		var create = """
+			(() => { const f = document.querySelector('form[data-resource="branches"]');
+			f.elements.code.value = 'ui_stock'; f.elements.name.value = 'UI Stock Branch';
+			f.elements.address.value = 'Market Road'; f.requestSubmit(); return true; })()
+			""";
+		chrome.evaluate(create);
+		chrome.await("document.querySelector('#branches table').innerText.includes('UI_STOCK') && document.readyState === 'complete'");
+		chrome.ready();
+		assertThat(chrome.evaluate("document.querySelector('#notice').textContent").asText()).isEqualTo("Branch changes saved.");
+		var id = chrome.evaluate("document.querySelector('[data-edit=\"branches\"]').dataset.id").asText();
+		chrome.evaluate(create);
+		chrome.await("document.querySelector('form[data-resource=\"branches\"] .form-message').classList.contains('error')");
+		assertThat(chrome.evaluate("document.querySelector('form[data-resource=\"branches\"] .form-message').textContent").asText())
+			.contains("code already exists");
+		var edit = "document.querySelector('[data-edit=\"branches\"][data-id=\"" + id + "\"]').click(); true";
+		chrome.evaluate(edit);
+		chrome.await("document.querySelector('form[data-resource=\"branches\"]').elements.id.value !== ''");
+		var version = chrome.evaluate("document.querySelector('form[data-resource=\"branches\"]').elements.version.value").asText();
+		assertThat(admin.mutateWithIfMatch("PUT", "/api/branches/" + id, Map.of(
+			"code", "UI_STOCK", "name", "UI Stock Branch", "address", "Changed by another administrator", "active", true),
+			"\"" + version + "\"").statusCode()).isEqualTo(200);
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('form[data-resource="branches"]');
+			f.elements.address.value = 'Stale address'; f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('form[data-resource=\"branches\"] .form-message').classList.contains('error')");
+		assertThat(chrome.evaluate("document.querySelector('form[data-resource=\"branches\"] .form-message').textContent").asText())
+			.contains("branch changed");
+		chrome.evaluate(edit);
+		chrome.await("document.querySelector('form[data-resource=\"branches\"]').elements.address.value === 'Changed by another administrator'");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('form[data-resource="branches"]');
+			f.elements.address.value = 'Updated Market Road'; f.elements.active.checked = false;
+			f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('#branches table').innerText.includes('Inactive') && document.readyState === 'complete'");
+		chrome.ready();
+		chrome.evaluate(edit);
+		chrome.await("document.querySelector('form[data-resource=\"branches\"]').elements.id.value !== ''");
+		assertThat(chrome.evaluate("document.querySelector('form[data-resource=\"branches\"]').elements.active.checked").asBoolean()).isFalse();
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('form[data-resource="branches"]');
+			f.elements.active.checked = true; f.requestSubmit(); return true; })()
+			""");
+		chrome.await("!document.querySelector('#branches table').innerText.includes('Inactive') && document.querySelector('form[data-resource=\"branches\"]').elements.id.value === '' && document.readyState === 'complete'");
+		chrome.ready();
+		assertThat(chrome.evaluate("document.querySelector('#branches table').innerText").asText()).contains("Updated Market Road");
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 1440, "height", 1000, "deviceScaleFactor", 1, "mobile", false));
+		return id;
+	}
+
+	private void verifySalesWorkspace(Chrome chrome, Browser admin, String branchId, String productId) throws Exception {
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 1440, "height", 1000, "deviceScaleFactor", 1, "mobile", false));
+		verifyStaffAssignments(chrome, admin, branchId);
+		loginChrome(chrome, "ui-sales-subject", java.util.List.of("BRANCH_VIEW", "BRANCH_MANAGE"), "UI Salesperson");
+		navigateSidebar(chrome, "configurations", "/ui/branches");
+		assertThat(chrome.evaluate("document.querySelector('#branches-editor').hidden").asBoolean()).isTrue();
+		chrome.evaluate("document.querySelector('[data-edit=\"branches\"]').click(); true");
+		chrome.await("!document.querySelector('#branches-editor').hidden && document.querySelector('form[data-resource=\"branches\"]').elements.id.value !== ''");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('form[data-resource="branches"]');
+			f.elements.address.value = 'Scoped manager address'; f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('#branches table').innerText.includes('Scoped manager address') && document.readyState === 'complete'");
+		chrome.ready();
+		assertThat(chrome.evaluate("document.querySelector('#branches-editor').hidden").asBoolean()).isTrue();
+		loginChrome(chrome, "ui-sales-subject", java.util.List.of("SALE_CREATE"), "UI Salesperson");
+		navigateSidebar(chrome, "sales", "/ui/sales");
+		assertThat(chrome.evaluate("""
+			[...document.querySelectorAll('.sidebar .nav-group')].map(group => group.id).join(',')
+			""").asText()).isEqualTo("nav-dashboard,nav-sales,nav-reports");
+		assertThat(chrome.evaluate("document.querySelector('#sale-customer').value").asText()).isEqualTo("Walk-ins");
+		assertThat(chrome.evaluate("document.querySelector('#sale-form [name=\"branchId\"]') === null").asBoolean()).isTrue();
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#sale-form');
+			f.elements.productId.value = '%s'; f.elements.unitId.value = '10000000-0000-0000-0000-000000000001';
+			f.elements.quantity.value = '99'; f.elements.unitPrice.value = '120';
+			document.querySelector('#quote-sale').click(); return true; })()
+			""".formatted(productId));
+		chrome.await("document.querySelector('#sale-total').classList.contains('error')");
+		assertThat(chrome.evaluate("document.querySelector('#sale-total').textContent").asText()).contains("Insufficient");
+		chrome.evaluate("""
+			document.querySelector('#sale-form').elements.quantity.value = '1.25';
+			document.querySelector('#quote-sale').click(); true
+			""");
+		chrome.await("document.querySelector('#sale-total').textContent.includes('Total: KES 150.00')");
+		chrome.evaluate("""
+			const form = document.querySelector('#sale-form'); form.elements.paymentConfirmed.checked = true;
+			form.requestSubmit(); true
+			""");
+		chrome.await("document.querySelector('#sale-receipt') !== null && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('#sale-receipt').innerText").asText()).contains("Walk-ins", "KES 150.00", "PAID");
+		var firstReceipt = chrome.evaluate("location.pathname").asText();
+		navigateSidebar(chrome, "sales", "/ui/sales");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#sale-form'); f.elements.customer.value = '__new__';
+			f.elements.customer.dispatchEvent(new Event('change')); f.elements.customerName.value = 'UI Grocery Customer';
+			f.elements.productId.value = '%s'; f.elements.unitId.value = '10000000-0000-0000-0000-000000000001';
+			f.elements.quantity.value = '.75'; f.elements.unitPrice.value = '120'; f.elements.paymentMethod.value = 'MPESA';
+			f.elements.paymentMethod.dispatchEvent(new Event('change')); f.elements.paymentReference.value = 'UI-MPESA-001';
+			document.querySelector('#quote-sale').click(); return true; })()
+			""".formatted(productId));
+		chrome.await("document.querySelector('#sale-total').textContent.includes('Total: KES 90.00')");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#sale-form'); f.elements.paymentConfirmed.checked = true;
+			f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('#sale-receipt') !== null && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('#sale-receipt').innerText").asText())
+			.contains("UI Grocery Customer", "UI-MPESA-001", "KES 90.00");
+		navigateSidebar(chrome, "sales", "/ui/sales");
+		assertThat(chrome.evaluate("document.querySelector('#sale-customer').value").asText()).isEqualTo("Walk-ins");
+		assertThat(chrome.evaluate("document.querySelector('#sale-customer').innerText").asText()).contains("UI Grocery Customer");
+		assertThat(chrome.evaluate("document.querySelectorAll('#nav-stock a[href^=\"/ui/reports/\"]').length").asInt()).isZero();
+		assertThat(chrome.evaluate("document.querySelector('#nav-reports a[href=\"/ui/reports/profit\"]') === null").asBoolean()).isTrue();
+		for (var report : java.util.List.of("sales", "daily-sales", "product-sales", "branch-sales",
+				"staff-performance", "customer-sales", "payments")) {
+			navigateSidebar(chrome, "reports", "/ui/reports/" + report);
+			assertThat(chrome.evaluate("document.querySelector('main').innerText").asText()).contains("Your own attributed sales only", "240.00");
+		}
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+		navigateSidebar(chrome, "sales", "/ui/sales");
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		navigateSidebar(chrome, "reports", "/ui/reports/staff-performance");
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		loginChrome(chrome, OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS, "Browser Administrator");
+		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + firstReceipt));
+		chrome.await("document.querySelector('#sale-void-form') !== null && document.readyState === 'complete'");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#sale-void-form'); f.elements.reason.value = 'UI full sale returned';
+			f.elements.refundReference.value = 'UI-REFUND-001'; f.elements.returnedAndRefunded.checked = true;
+			f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('#sale-receipt') !== null && document.querySelector('#sale-receipt').innerText.includes('VOIDED') && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('#sale-void-form') === null").asBoolean()).isTrue();
+		for (var report : java.util.List.of("profit", "stock-valuation", "stock-losses", "staff-performance")) {
+			navigateSidebar(chrome, "reports", "/ui/reports/" + report);
+			assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		}
+		navigateSidebar(chrome, "reports", "/ui/reports/profit");
+		assertThat(chrome.evaluate("document.querySelector('main').innerText").asText()).contains("90.00", "60.09", "29.91");
+		navigateSidebar(chrome, "dashboard", "/home");
+		assertThat(chrome.evaluate("document.querySelector('#sales-card').innerText").asText()).contains("90.00");
+		assertThat(chrome.evaluate("document.querySelector('#staff-sales-card').innerText").asText()).contains("1 salespeople");
+	}
+
+	private void verifyStaffAssignments(Chrome chrome, Browser admin, String branchId) throws Exception {
+		chrome.command("Network.clearBrowserCookies", Map.of());
+		PROVIDER.identity("ui-sales-subject", java.util.List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/home"));
+		chrome.await("location.pathname === '/access-pending' && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('h1').textContent").asText()).isEqualTo("Awaiting administrator approval");
+		loginChrome(chrome, OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS, "Browser Administrator");
+		navigateSidebar(chrome, "users", "/ui/users");
+		assertThat(chrome.evaluate("document.querySelector('#staff-form').elements.scope.value").asText()).isEqualTo("single");
+		chrome.evaluate("document.querySelector('[data-review-access]').click(); true");
+		chrome.await("document.querySelector('#staff-form').elements.accessRequestId.value !== ''");
+		assertThat(chrome.evaluate("document.querySelector('#staff-form').elements.subject.value").asText()).isEqualTo("ui-sales-subject");
+		assertThat(chrome.evaluate("document.querySelector('#staff-form').elements.subject.readOnly").asBoolean()).isTrue();
+		var approve = """
+			(() => { const f = document.querySelector('#staff-form');
+			f.elements.username.value = 'ui.sales'; f.elements.fullName.value = 'UI Salesperson';
+			f.elements.branchIds.value = '%s';
+			f.requestSubmit(); return true; })()
+			""".formatted(branchId);
+		chrome.evaluate(approve);
+		chrome.await("document.querySelector('#staff-directory').innerText.includes('UI Salesperson') && document.readyState === 'complete'");
+		chrome.ready();
+		assertThat(chrome.evaluate("document.querySelector('#notice').textContent").asText()).contains("branch assignments saved");
+		assertThat(chrome.evaluate("document.querySelectorAll('[data-review-access]').length").asInt()).isZero();
+		chrome.evaluate("document.querySelector('#staff-form').elements.subject.value = 'ui-sales-subject'; true");
+		chrome.evaluate(approve);
+		chrome.await("document.querySelector('#staff-form .form-message').classList.contains('error')");
+		assertThat(chrome.evaluate("document.querySelector('#staff-form .form-message').textContent").asText()).contains("already approved");
+		var editSeller = """
+			[...document.querySelectorAll('#staff-directory tbody tr')]
+			  .find(row => row.cells[0].textContent === 'ui.sales').querySelector('[data-edit-user]').click(); true
+			""";
+		chrome.evaluate(editSeller);
+		chrome.await("document.querySelector('#staff-form').elements.id.value !== ''");
+		assertThat(chrome.evaluate("""
+			(() => { const f = document.querySelector('#staff-form');
+			return f.elements.username.readOnly && f.elements.subject.readOnly && !f.elements.active.disabled; })()
+			""").asBoolean()).isTrue();
+		var otherBranch = admin.mutate("POST", "/api/branches", Map.of(
+			"code", "UI_OTHER", "name", "UI Other Branch", "active", true));
+		assertThat(otherBranch.statusCode()).isEqualTo(201);
+		var otherId = admin.body(otherBranch).get("id").asText();
+		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/users"));
+		chrome.await("document.querySelector('#staff-form') !== null && document.readyState === 'complete'");
+		chrome.evaluate(editSeller);
+		chrome.await("document.querySelector('#staff-form').elements.id.value !== ''");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#staff-form');
+			f.elements.scope.value = 'multiple'; f.elements.scope.dispatchEvent(new Event('change'));
+			[...f.elements.branchIds.options].forEach(option => { option.selected = ['%s', '%s'].includes(option.value); });
+			f.requestSubmit(); return true; })()
+			""".formatted(branchId, otherId));
+		chrome.await("document.querySelector('#staff-directory').innerText.includes('2 assigned branches') && document.readyState === 'complete'");
+		chrome.ready();
+		chrome.evaluate(editSeller);
+		chrome.await("document.querySelector('#staff-form').elements.id.value !== ''");
+		assertThat(chrome.evaluate("document.querySelector('#staff-form').elements.branchIds.selectedOptions.length").asInt()).isEqualTo(2);
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#staff-form');
+			f.elements.scope.value = 'single'; f.elements.scope.dispatchEvent(new Event('change'));
+			return f.elements.branchIds.value; })()
+			""");
+		assertThat(chrome.evaluate("document.querySelector('#staff-form').elements.branchIds.value").asText()).isEmpty();
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#staff-form'); f.elements.branchIds.value = '%s';
+			f.requestSubmit(); return true; })()
+			""".formatted(otherId));
+		chrome.await("document.querySelector('#staff-directory').innerText.includes('1 assigned branches') && !document.querySelector('#staff-directory').innerText.includes('2 assigned branches') && document.readyState === 'complete'");
+		chrome.ready();
+		chrome.evaluate(editSeller);
+		chrome.await("document.querySelector('#staff-form').elements.id.value !== ''");
+		var userId = chrome.evaluate("document.querySelector('#staff-form').elements.id.value").asText();
+		var version = chrome.evaluate("document.querySelector('#staff-form').elements.version.value").asText();
+		assertThat(admin.mutateWithIfMatch("PUT", "/api/users/" + userId, Map.of(
+			"fullName", "Changed by another administrator", "active", true, "allBranches", false,
+			"branchIds", java.util.List.of(otherId)), "\"" + version + "\"").statusCode()).isEqualTo(200);
+		chrome.evaluate("document.querySelector('#staff-form').requestSubmit(); true");
+		chrome.await("document.querySelector('#staff-form .form-message').classList.contains('error')");
+		assertThat(chrome.evaluate("document.querySelector('#staff-form .form-message').textContent").asText()).contains("record changed");
+		chrome.evaluate(editSeller);
+		chrome.await("document.querySelector('#staff-form').elements.fullName.value === 'Changed by another administrator'");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#staff-form'); f.elements.fullName.value = 'UI Salesperson';
+			f.elements.branchIds.value = '%s'; f.requestSubmit(); return true; })()
+			""".formatted(branchId));
+		chrome.await("document.querySelector('#staff-directory').innerText.includes('UI Salesperson') && document.querySelector('#staff-form').elements.id.value === '' && document.readyState === 'complete'");
+		chrome.ready();
+		assertThat(chrome.evaluate("""
+			[...document.querySelectorAll('#staff-directory tbody tr')]
+			  .find(row => row.cells[0].textContent === 'ui.sales').cells[3].textContent
+			""").asText()).contains("UI Stock Branch").doesNotContain("UI Other Branch");
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 1440, "height", 1000, "deviceScaleFactor", 1, "mobile", false));
+	}
+
+	private void loginChrome(Chrome chrome, String subject, java.util.List<String> permissions, String name) throws Exception {
+		chrome.command("Network.clearBrowserCookies", Map.of());
+		PROVIDER.identity(subject, permissions, OidcTestProvider.Fault.NONE);
+		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/home"));
+		chrome.await("location.pathname === '/home' && document.readyState === 'complete' && "
+			+ "document.querySelector('.sidebar-foot strong')?.textContent === " + json.writeValueAsString(name));
 	}
 
 	@Test
@@ -218,6 +481,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		assertThat(chrome.evaluate("document.querySelector('#stock-history') === null").asBoolean()).isTrue();
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('#stock-receipt');
+			Object.defineProperty(globalThis.crypto, 'getRandomValues', {value: undefined, configurable: true});
 			f.elements.branchId.value = '%s'; f.elements.source.value = 'UI Farm';
 			const line = f.querySelector('.receipt-line');
 			line.querySelector('[name="productId"]').value = '%s';
@@ -235,6 +499,10 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			measured.querySelector('[name="lotCode"]').value = 'UI_MEASURED_LOT';
 			f.requestSubmit(); return true; })()
 			""".formatted(branchId, productId, productId));
+		chrome.await("document.querySelector('#stock-receipt .form-message').classList.contains('error')");
+		assertThat(chrome.evaluate("document.querySelector('#stock-receipt .form-message').textContent").asText())
+			.contains("Secure request identifiers are unavailable");
+		chrome.evaluate("delete globalThis.crypto.getRandomValues; document.querySelector('#stock-receipt').requestSubmit(); true");
 		chrome.await("document.querySelector('#stock-batches').innerText.includes('UI_MEASURED_LOT')");
 		chrome.ready();
 		assertThat(chrome.evaluate("document.querySelector('#stock-balances').innerText").asText()).contains("5.123456 KG");
@@ -250,7 +518,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			f.elements.quantity.value = '0.123456'; f.elements.reason.value = 'UI bruising';
 			f.requestSubmit(); return true; })()
 			""");
-		chrome.await("document.querySelector('#stock-balances').innerText.includes('5.000000 KG')");
+		chrome.await("document.querySelector('#stock-balances')?.innerText.includes('5.000000 KG') === true");
 		chrome.ready();
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('form[data-stock="adjustments"]');
@@ -259,7 +527,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			f.elements.quantity.value = '1'; f.elements.reason.value = 'UI count correction';
 			f.requestSubmit(); return true; })()
 			""");
-		chrome.await("document.querySelector('#stock-balances').innerText.includes('6.000000 KG')");
+		chrome.await("document.querySelector('#stock-balances')?.innerText.includes('6.000000 KG') === true");
 		chrome.ready();
 		chrome.evaluate("""
 			(() => { const row = [...document.querySelectorAll('#stock-history tbody tr')]

@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.UUID;
 
 import com.primeroot.platform.access.AccessDtos.CreateUserRequest;
+import com.primeroot.platform.access.AccessDtos.AccessRequestResponse;
+import com.primeroot.platform.access.AccessDtos.ApproveAccessRequest;
 import com.primeroot.platform.access.AccessDtos.UpdateUserRequest;
 import com.primeroot.platform.access.AccessDtos.UserResponse;
 import jakarta.validation.Valid;
@@ -31,6 +33,19 @@ public class StaffController {
 	@GetMapping
 	public List<UserResponse> list() {
 		return users.list();
+	}
+
+	@GetMapping("/access-requests")
+	public List<AccessRequestResponse> pendingRequests() {
+		return users.pendingRequests();
+	}
+
+	@PostMapping("/access-requests/{id}/approve")
+	public ResponseEntity<UserResponse> approveRequest(@PathVariable UUID id,
+			@Valid @RequestBody ApproveAccessRequest request) {
+		var user = users.approveRequest(id, request);
+		return ResponseEntity.created(URI.create("/api/users/" + user.id()))
+			.header(HttpHeaders.ETAG, etag(user.version())).body(user);
 	}
 
 	@PostMapping

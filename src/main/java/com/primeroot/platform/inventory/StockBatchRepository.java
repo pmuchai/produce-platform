@@ -11,6 +11,15 @@ import org.springframework.data.repository.query.Param;
 
 public interface StockBatchRepository extends JpaRepository<StockBatch, UUID> {
 	@Query("""
+		select b from StockBatch b where b.branch.id = :branch and b.product.id = :product
+		and b.quantity > 0 and (b.expiryDate is null or b.expiryDate >= :today)
+		order by case when b.expiryDate is null then 1 else 0 end, b.expiryDate,
+			b.receivedDate, b.createdAt, b.id
+		""")
+	List<StockBatch> saleCandidates(@Param("branch") UUID branch, @Param("product") UUID product,
+			@Param("today") LocalDate today, Pageable pageable);
+
+	@Query("""
 		select b.branch.id, b.product.id, sum(b.quantity) from StockBatch b
 		where b.branch.id in :branches group by b.branch.id, b.product.id
 		""")
@@ -31,11 +40,8 @@ public interface StockBatchRepository extends JpaRepository<StockBatch, UUID> {
 
 	@Query("""
 		select b from StockBatch b where b.branch.id in :branches
-		and (:branchId is null or b.branch.id = :branchId)
-		and (:search is null or lower(b.lotCode) like concat('%', :search, '%')
-			or lower(b.product.name) like concat('%', :search, '%'))
+		and (lower(b.lotCode) like :search or lower(b.product.name) like :search)
 		order by b.receivedDate desc, b.createdAt desc, b.id
 		""")
-	Page<StockBatch> search(@Param("branches") List<UUID> branches, @Param("branchId") UUID branchId,
-			@Param("search") String search, Pageable pageable);
+	Page<StockBatch> search(@Param("branches") List<UUID> branches, @Param("search") String search, Pageable pageable);
 }
