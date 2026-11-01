@@ -229,6 +229,37 @@ class ExpenseIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void unrelatedUnknownLossAndOutOfRangeReversalCannotCancelEachOther() throws Exception {
+		try (var admin = browser()) {
+			fixture(admin);
+			admin.mutate("POST", "/api/expenses", expense("1"));
+			receive(admin, "3", "1", "UNKNOWN");
+			jdbc.update("UPDATE stock_batches SET currency = NULL, purchase_unit_cost = NULL, received_cost = NULL, remaining_cost = NULL WHERE lot_code = 'UNKNOWN'");
+			jdbc.update("UPDATE stock_movements SET cost_change = NULL WHERE batch_id = ?", UUID.fromString(batch("UNKNOWN")));
+			var original = admin.mutate("POST", "/api/inventory/spoilage", Map.of("requestId", UUID.randomUUID(), "branchId", branch,
+				"batchId", batch("UNKNOWN"), "quantity", "1", "reason", "Older unknown loss"));
+			assertThat(original.statusCode()).withFailMessage(original.body()).isEqualTo(200);
+			var originalOperation = admin.body(original).get("id").asText();
+			jdbc.update("UPDATE stock_operations SET posted_at = ? WHERE id = ?", java.sql.Timestamp.from(
+				today.minusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC)), UUID.fromString(originalOperation));
+			var originalMovement = admin.body(original).get("movements").get(0).get("id").asText();
+			var reversal = admin.mutate("POST", "/api/inventory/reversals", Map.of("requestId", UUID.randomUUID(),
+				"branchId", branch, "movementId", originalMovement, "reason", "Reverse older unknown loss"));
+			assertThat(reversal.statusCode()).withFailMessage(reversal.body()).isEqualTo(200);
+			var reversalOnly = admin.body(admin.get(reportUrl(today, today)));
+			assertThat(total(reversalOnly, "UNKNOWN").get("unknownCosts").asInt()).isEqualTo(1);
+			assertThat(total(reversalOnly, "KES").get("netProfit").isNull()).isTrue();
+			var currentLoss = admin.mutate("POST", "/api/inventory/spoilage", Map.of("requestId", UUID.randomUUID(), "branchId", branch,
+				"batchId", batch("UNKNOWN"), "quantity", "1", "reason", "Current unknown loss"));
+			assertThat(currentLoss.statusCode()).withFailMessage(currentLoss.body()).isEqualTo(200);
+
+			var report = admin.body(admin.get(reportUrl(today, today)));
+			assertThat(total(report, "UNKNOWN").get("unknownCosts").asInt()).isEqualTo(2);
+			assertThat(total(report, "KES").get("netProfit").isNull()).isTrue();
+		}
+	}
+
+	@Test
 	void concurrentPostingAndVoidingRetriesNeverDoubleCountExpenses() throws Exception {
 		try (var admin = browser(); var peer = browser()) {
 			fixture(admin);

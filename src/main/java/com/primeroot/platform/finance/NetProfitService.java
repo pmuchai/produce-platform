@@ -71,6 +71,19 @@ public class NetProfitService {
 		}
 		scale += " ELSE 2 END";
 		var loss = "COALESCE(-m.cost_change, ROUND(-m.quantity * b.received_cost / b.received_quantity, " + scale + "))";
+		var reversalInRange = """
+			(m.reversal_of IS NOT NULL AND EXISTS (
+			    SELECT 1 FROM stock_movements original
+			    JOIN stock_operations original_operation ON original_operation.id = original.operation_id
+			    WHERE original.id = m.reversal_of AND original.batch_id = m.batch_id AND original.kind = 'SPOILAGE'
+			        AND original_operation.posted_at >= :from AND original_operation.posted_at < :until
+			)) OR EXISTS (
+			    SELECT 1 FROM stock_movements reversal
+			    JOIN stock_operations reversal_operation ON reversal_operation.id = reversal.operation_id
+			    WHERE reversal.reversal_of = m.id AND reversal.batch_id = m.batch_id AND reversal.kind = 'SPOILAGE'
+			        AND reversal_operation.posted_at >= :from AND reversal_operation.posted_at < :until
+			)
+			""";
 		return """
 			SELECT branch_id, currency, occurred_at, revenue, cost AS cogs,
 			    CAST(0 AS NUMERIC) AS expense, CAST(0 AS NUMERIC) AS loss, 0 AS unknown_costs FROM sales_events
@@ -80,8 +93,8 @@ public class NetProfitService {
 			UNION ALL
 			SELECT b.branch_id, COALESCE(b.currency, 'UNKNOWN') AS currency, o.posted_at AS occurred_at,
 			    0 AS revenue, 0 AS cogs, 0 AS expense,
-			""" + loss + " AS loss, CASE WHEN " + loss + """
-			     IS NULL THEN CASE WHEN m.quantity < 0 THEN 1 ELSE -1 END ELSE 0 END AS unknown_costs
+			""" + loss + " AS loss, CASE WHEN " + loss + " IS NULL AND NOT (" + reversalInRange + """
+			) THEN 1 ELSE 0 END AS unknown_costs
 			FROM stock_movements m JOIN stock_batches b ON b.id = m.batch_id
 			JOIN stock_operations o ON o.id = m.operation_id WHERE m.kind = 'SPOILAGE'
 			UNION ALL
