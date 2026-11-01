@@ -20,6 +20,8 @@ import com.primeroot.platform.sales.SalesReports;
 import com.primeroot.platform.finance.Expense;
 import com.primeroot.platform.finance.ExpenseService;
 import com.primeroot.platform.finance.NetProfitService;
+import com.primeroot.platform.whatsapp.WhatsAppLinkService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -38,10 +40,12 @@ public class WorkspaceController {
 	private final TransferService transfers;
 	private final ExpenseService expenses;
 	private final NetProfitService netProfit;
+	private final ObjectProvider<WhatsAppLinkService> whatsapp;
 
 	public WorkspaceController(StaffService staff, BranchService branches, CatalogueService catalogue,
 			AuditService audit, InventoryService inventory, SalesService sales, SalesReportService salesReports,
-			TransferService transfers, ExpenseService expenses, NetProfitService netProfit) {
+			TransferService transfers, ExpenseService expenses, NetProfitService netProfit,
+			ObjectProvider<WhatsAppLinkService> whatsapp) {
 		this.staff = staff;
 		this.branches = branches;
 		this.catalogue = catalogue;
@@ -52,6 +56,7 @@ public class WorkspaceController {
 		this.transfers = transfers;
 		this.expenses = expenses;
 		this.netProfit = netProfit;
+		this.whatsapp = whatsapp;
 	}
 
 	private void workspace(Model model, String page) {
@@ -82,6 +87,7 @@ public class WorkspaceController {
 		model.addAttribute("adjustStock", permissions.contains(Permission.STOCK_ADJUST));
 		model.addAttribute("spoilStock", permissions.contains(Permission.STOCK_SPOILAGE));
 		model.addAttribute("canSales", permissions.contains(Permission.SALE_CREATE) || permissions.contains(Permission.SALES_VIEW));
+		model.addAttribute("canWhatsApp", whatsapp.getIfAvailable() != null);
 		model.addAttribute("createSale", permissions.contains(Permission.SALE_CREATE)
 			&& !global && current.staff().branchIds().size() == 1);
 		model.addAttribute("voidSale", permissions.contains(Permission.SALE_VOID));
@@ -93,6 +99,16 @@ public class WorkspaceController {
 				? permissions.contains(Permission.STOCK_VIEW) : permissions.contains(Permission.SALES_VIEW)
 					|| permissions.contains(Permission.SALE_CREATE)).toList());
 		model.addAttribute("today", LocalDate.now(ZoneOffset.UTC));
+	}
+
+	@GetMapping("/ui/whatsapp")
+	public String whatsapp(Model model) {
+		var links = whatsapp.getIfAvailable();
+		if (links == null) throw new org.springframework.web.server.ResponseStatusException(
+			org.springframework.http.HttpStatus.NOT_FOUND, "WhatsApp integration is not enabled");
+		workspace(model, "whatsapp");
+		model.addAttribute("whatsapp", links.status());
+		return "whatsapp";
 	}
 
 	@GetMapping("/home")

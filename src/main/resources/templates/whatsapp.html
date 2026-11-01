@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('WhatsApp reporting')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+    <header th:replace="~{layout :: header('WhatsApp reporting', 'Verified staff linking and read-only sales summaries')}"></header>
+    <div th:replace="~{layout :: notice}"></div>
+    <section class="panel" id="whatsapp-linking">
+      <h2>Your reporting account</h2>
+      <p th:if="${whatsapp.sender != null}">Linked WhatsApp number: <strong th:text="${'+' + whatsapp.sender}"></strong></p>
+      <p th:if="${whatsapp.sender == null}">No WhatsApp account linked.</p>
+      <p th:if="${whatsapp.reauthenticationRequired}" class="hint">Access expired or changed. Sign out, sign in again, and renew linking.</p>
+      <p>Link only your own WhatsApp account. Reports follow your current Keycloak permissions and local branch scope.
+        Sellers without SALES_VIEW receive only their own sales. This grants ongoing reporting access while your Keycloak session can be refreshed.</p>
+      <div class="form-actions">
+        <button type="button" id="whatsapp-create" th:if="${canSales}">Request link / renew access</button>
+        <button type="button" id="whatsapp-unlink" class="secondary"
+          th:if="${whatsapp.sender != null or whatsapp.challenge != null}">Unlink / cancel</button>
+      </div>
+      <div id="whatsapp-code" hidden>
+        <p>Send this single-use message from your WhatsApp account within 10 minutes:</p>
+        <code id="whatsapp-command"></code>
+        <p><a id="whatsapp-open" target="_blank" rel="noopener noreferrer">Open WhatsApp</a></p>
+        <p>Do not share this code. Return here and check the verified number before confirming.</p>
+        <p><a th:href="@{/ui/whatsapp}">Refresh verification status</a></p>
+      </div>
+      <div th:if="${whatsapp.challenge != null}">
+        <p th:if="${whatsapp.challenge.verifiedSender == null}">Waiting for your WhatsApp message.
+          <a th:href="@{/ui/whatsapp}">Refresh verification status</a></p>
+        <div th:if="${whatsapp.challenge.verifiedSender != null}">
+          <p>Verified WhatsApp number: <strong th:text="${'+' + whatsapp.challenge.verifiedSender}"></strong>.
+            Confirm only if this is your number. Confirmation replaces your previous linked number.</p>
+          <button type="button" id="whatsapp-confirm" th:attr="data-challenge-id=${whatsapp.challenge.id}">Confirm my number and enable reports</button>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Supported prompts</h2>
+      <p><code>What is the total amount sold today?</code>, <code>sales yesterday</code>, <code>sales this week</code>.</p>
+      <p>Dates use UTC, including backdated sale dates. Replies show currency-separated net sales, sales counts and refund counts;
+        net sales are not profit. No business records can be changed from WhatsApp.</p>
+    </section>
+</main>
+</body>
+</html>

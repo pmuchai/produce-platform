@@ -67,6 +67,36 @@
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   };
 
+  const whatsappCreate = document.getElementById('whatsapp-create');
+  const whatsappConfirm = document.getElementById('whatsapp-confirm');
+  const whatsappUnlink = document.getElementById('whatsapp-unlink');
+  [whatsappCreate, whatsappConfirm, whatsappUnlink].filter(Boolean).forEach(button => {
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        if (button === whatsappCreate) {
+          const created = await request('api/whatsapp/link/challenges', {method: 'POST'});
+          document.getElementById('whatsapp-command').textContent = `LINK ${created.code}`;
+          document.getElementById('whatsapp-open').href = created.whatsappUrl;
+          document.getElementById('whatsapp-code').hidden = false;
+          whatsappConfirm?.remove();
+          showNotice('Send the code from WhatsApp, then refresh this page to verify and confirm your number.');
+        } else {
+          await request(button === whatsappConfirm ? 'api/whatsapp/link/confirm' : 'api/whatsapp/link', {
+            method: button === whatsappConfirm ? 'POST' : 'DELETE',
+            ...(button === whatsappConfirm ? {headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({challengeId: button.dataset.challengeId})} : {})
+          });
+          window.location.assign(base + 'ui/whatsapp');
+        }
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+
   const staffForm = document.getElementById('staff-form');
   const expenseForm = document.getElementById('expense-form');
   if (expenseForm) {
