@@ -113,6 +113,17 @@ class WhatsAppIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void browserCanRelinkAfterWhatsAppWorkerRotatesItsRefreshToken() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			link(admin, "254711111110");
+			message("refresh-before-relink", "254711111110", "sales today");
+			link(admin, "254711111110");
+			assertThat(admin.body(admin.get("/api/whatsapp/link")).get("sender").asText()).isEqualTo("254711111110");
+		}
+	}
+
+	@Test
 	void toolAndRepliesPreserveOwnSalesBranchScopeCurrenciesAndBackdatedRefundSemantics() throws Exception {
 		try (var admin = browser(); var seller = browser(); var peer = browser(); var manager = browser()) {
 			fixture(admin);

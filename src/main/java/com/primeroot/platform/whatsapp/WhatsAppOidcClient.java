@@ -18,9 +18,13 @@ import com.primeroot.platform.access.StaffUser;
 import com.primeroot.platform.security.StaffPrincipal;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.oidc.authentication.OidcIdTokenDecoderFactory;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.core.OAuth2RefreshToken;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
@@ -32,13 +36,16 @@ import tools.jackson.databind.json.JsonMapper;
 @ConditionalOnProperty(name = "platform.whatsapp.enabled", havingValue = "true")
 public class WhatsAppOidcClient {
 	private final ClientRegistrationRepository registrations;
+	private final OAuth2AuthorizedClientService authorizedClients;
 	private final JsonMapper json;
 	private final JwtDecoder decoder;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
 		.followRedirects(HttpClient.Redirect.NEVER).build();
 
-	public WhatsAppOidcClient(ClientRegistrationRepository registrations, JsonMapper json) {
+	public WhatsAppOidcClient(ClientRegistrationRepository registrations, OAuth2AuthorizedClientService authorizedClients,
+			JsonMapper json) {
 		this.registrations = registrations;
+		this.authorizedClients = authorizedClients;
 		this.json = json;
 		this.decoder = new OidcIdTokenDecoderFactory().createDecoder(registrations.findByRegistrationId("keycloak"));
 	}
@@ -85,7 +92,14 @@ public class WhatsAppOidcClient {
 			var identity = new DefaultOidcUser(List.of(new OidcUserAuthority(idToken)), idToken);
 			var rotated = body.path("refresh_token").asText(refreshToken);
 			if (rotated.isBlank() || rotated.length() > 12_000) throw denied();
-			return new Grant(new StaffPrincipal(staff, identity, permissions), rotated);
+			var authorizedClient = authorizedClients.loadAuthorizedClient("keycloak", staff.getSubject());
+			if (authorizedClient == null) throw denied();
+			var authorizedRegistration = authorizedClient.getClientRegistration();
+			var principal = new StaffPrincipal(staff, identity, permissions);
+			authorizedClients.saveAuthorizedClient(new OAuth2AuthorizedClient(authorizedRegistration, staff.getSubject(),
+				authorizedClient.getAccessToken(), new OAuth2RefreshToken(rotated, Instant.now())),
+				new OAuth2AuthenticationToken(principal, principal.getAuthorities(), authorizedRegistration.getRegistrationId()));
+			return new Grant(principal, rotated);
 		}
 		catch (java.io.IOException exception) {
 			throw new TemporarilyUnavailable();
