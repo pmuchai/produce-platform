@@ -64,7 +64,7 @@ public class NetProfitService {
 
 	private String events(MapSqlParameterSource params) {
 		String scale = "CASE WHEN b.currency IS NULL THEN 2 ";
-		for (var code : jdbc.queryForList("SELECT DISTINCT currency FROM stock_batches WHERE currency IS NOT NULL",
+		for (var code : jdbc.queryForList("SELECT DISTINCT currency FROM stock_batches WHERE branch_id IN (:branches) AND currency IS NOT NULL",
 				params, String.class)) {
 			var currency = Currency.getInstance(code);
 			scale += " WHEN b.currency = '" + currency.getCurrencyCode() + "' THEN " + currency.getDefaultFractionDigits();
