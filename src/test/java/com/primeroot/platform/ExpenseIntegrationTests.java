@@ -34,7 +34,7 @@ class ExpenseIntegrationTests extends OidcTestSupport {
 
 	@BeforeEach
 	void reset() {
-		for (var table : List.of("audit_events", "expenses", "transfer_allocations", "stock_transfers", "sale_allocations",
+		for (var table : List.of("audit_events", "expense_request_ids", "expenses", "transfer_allocations", "stock_transfers", "sale_allocations",
 				"sale_lines", "sales", "stock_movements", "stock_batches", "stock_operations", "stock_thresholds",
 				"product_packaging", "products", "product_classifications", "produce_types", "user_branches",
 				"staff_users", "branches")) jdbc.update("DELETE FROM " + table);
@@ -285,6 +285,33 @@ class ExpenseIntegrationTests extends OidcTestSupport {
 			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action = 'EXPENSE_POSTED'", Integer.class)).isEqualTo(1);
 			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action = 'EXPENSE_VOIDED'", Integer.class)).isEqualTo(1);
 			assertThat(total(admin.body(admin.get(reportUrl(today, today))), "KES").get("netProfit").asText()).isEqualTo("0.00");
+		}
+	}
+
+	@Test
+	void concurrentCreateAndVoidCannotClaimTheSameRequestIdAcrossBranches() throws Exception {
+		try (var admin = browser(); var peer = browser()) {
+			fixture(admin);
+			peer.adminLogin();
+			var existing = admin.body(admin.mutate("POST", "/api/expenses", expense("15")));
+			var request = expense("7");
+			request.put("branchId", other);
+			var sharedRequestId = UUID.randomUUID();
+			request.put("requestId", sharedRequestId);
+			var reversal = Map.of("requestId", sharedRequestId, "reason", "Wrong entry");
+			try (var pool = Executors.newFixedThreadPool(2)) {
+				var ready = new CountDownLatch(1);
+				var create = pool.submit(() -> { ready.await(); return admin.mutate("POST", "/api/expenses", request).statusCode(); });
+				var voidExpense = pool.submit(() -> { ready.await(); return peer.mutate("POST",
+					"/api/expenses/" + existing.get("id").asText() + "/void", reversal).statusCode(); });
+				ready.countDown();
+				var statuses = List.of(create.get(20, TimeUnit.SECONDS), voidExpense.get(20, TimeUnit.SECONDS));
+				assertThat(statuses).contains(409);
+				assertThat(statuses.stream().filter(status -> status == 200 || status == 201)).hasSize(1);
+			}
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expenses", Integer.class)).isBetween(1, 2);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_request_ids WHERE request_id = ?",
+				Integer.class, sharedRequestId)).isEqualTo(1);
 		}
 	}
 

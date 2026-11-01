@@ -32,17 +32,20 @@ public class ExpenseService {
 	private final AccessService access;
 	private final BranchRepository branches;
 	private final ExpenseRepository expenses;
+	private final ExpenseRequestRepository expenseRequests;
 	private final AuditRepository audit;
 	private final JsonMapper json;
 	private final EntityManager entityManager;
 	private final Currency currency;
 
 	public ExpenseService(AccessService access, BranchRepository branches, ExpenseRepository expenses,
+			ExpenseRequestRepository expenseRequests,
 			AuditRepository audit, JsonMapper json, EntityManager entityManager,
 			@Value("${platform.inventory.currency}") String currency) {
 		this.access = access;
 		this.branches = branches;
 		this.expenses = expenses;
+		this.expenseRequests = expenseRequests;
 		this.audit = audit;
 		this.json = json;
 		this.entityManager = entityManager;
@@ -80,6 +83,15 @@ public class ExpenseService {
 			return response(previous.get());
 		}
 		if (expenses.findByVoidRequestId(request.requestId()).isPresent()) throw conflict("Request ID already used for an expense void");
+		var reservation = expenseRequests.reserve(request.requestId(), "CREATE", hash);
+		if (reservation == ExpenseRequestRepository.Reservation.CONFLICT) {
+			throw conflict("Request ID already used for an expense void or different create");
+		}
+		if (reservation == ExpenseRequestRepository.Reservation.REPLAY) {
+			var repeated = expenses.findById(request.requestId());
+			if (repeated.isPresent() && repeated.get().getRequestHash().equals(hash)) return response(repeated.get());
+			throw conflict("Request ID already used with different details or actor");
+		}
 		if (!branch.isActive()) throw conflict("Record expenses only in an active branch");
 		if (request.paidDate().isBefore(LocalDate.of(1970, 1, 1))
 				|| request.paidDate().isAfter(LocalDate.now(ZoneOffset.UTC))) throw invalid("Paid date must be between 1970 and today (UTC)");
@@ -115,6 +127,15 @@ public class ExpenseService {
 			return response(expense);
 		}
 		if (expenses.existsById(request.requestId())) throw conflict("Request ID already used for an expense");
+		var reservation = expenseRequests.reserve(request.requestId(), "VOID", hash);
+		if (reservation == ExpenseRequestRepository.Reservation.CONFLICT) {
+			throw conflict("Request ID already used for an expense or different void");
+		}
+		if (reservation == ExpenseRequestRepository.Reservation.REPLAY) {
+			var repeated = expenses.findByVoidRequestId(request.requestId());
+			if (repeated.isPresent() && repeated.get().getVoidHash().equals(hash)) return response(expense);
+			throw conflict("Request ID already used with different details or actor");
+		}
 		if (expense.getVoidedAt() != null) throw conflict("Expense already voided");
 		expense.voidExpense(actor.getId(), request, hash);
 		expenses.flush();
