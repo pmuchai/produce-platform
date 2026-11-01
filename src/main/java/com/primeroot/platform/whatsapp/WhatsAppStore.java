@@ -54,8 +54,10 @@ public class WhatsAppStore {
 	}
 
 	Optional<Challenge> challengeByHash(String hash) {
-		return jdbc.query("SELECT staff_id FROM whatsapp_challenges WHERE code_hash = ?",
-			(rs, index) -> rs.getObject(1, UUID.class), hash).stream().findFirst().flatMap(this::challenge);
+		return jdbc.query("SELECT * FROM whatsapp_challenges WHERE code_hash = ?", (rs, index) ->
+			new Challenge(rs.getObject("id", UUID.class), rs.getObject("staff_id", UUID.class),
+				rs.getLong("security_version"), rs.getTimestamp("expires_at").toInstant(),
+				rs.getString("verified_sender")), hash).stream().findFirst();
 	}
 
 	void newChallenge(UUID staffId, UUID id, String hash, long version, Instant expires) {
