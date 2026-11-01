@@ -62,7 +62,9 @@ public class SalesReportService {
 		}
 		String query = kind.isStock() ? stockQuery(kind, params) : salesQuery(kind, where);
 		var count = jdbc.queryForObject("SELECT COUNT(*) FROM (" + query + ") report_count", params, Long.class);
-		var rows = jdbc.query(query + " ORDER BY label, detail, currency, record_id LIMIT :limit OFFSET :offset", params,
+		String ordering = " ORDER BY label, detail, currency, record_id";
+		if (kind.isStock()) ordering += ", sort_product_id, sort_branch_id";
+		var rows = jdbc.query(query + ordering + " LIMIT :limit OFFSET :offset", params,
 			(rs, index) -> row(rs, profit));
 		var totals = kind.isStock() ? stockTotals(query, params, profit) : totals(where, params, profit);
 		var activity = kind.isStock() ? new long[] {0, 0} : jdbc.queryForObject(
@@ -160,6 +162,7 @@ public class SalesReportService {
 			: "COALESCE(-m.cost_change, ROUND(-m.quantity * b.received_cost / b.received_quantity, " + scale + "))";
 		String query = """
 			SELECT CAST(NULL AS UUID) AS record_id, p.name AS label, br.name AS detail,
+			p.id AS sort_product_id, br.id AS sort_branch_id,
 			COALESCE(b.currency, 'UNKNOWN') AS currency, u.code AS unit,
 			""" + (kind == SalesReports.Kind.VALUATION ? "SUM(b.quantity)" : "SUM(-m.quantity)") + """
 			 AS quantity, 0 AS receipts, 0 AS voids, CAST(NULL AS NUMERIC) AS revenue,

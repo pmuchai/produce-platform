@@ -329,6 +329,51 @@ class SalesIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void stockReportPaginationUsesStableGroupingIdentifiersForTiedRows() throws Exception {
+		try (var admin = browser()) {
+			fixture(admin);
+			var operationId = UUID.randomUUID();
+			var actorId = jdbc.queryForObject("SELECT id FROM staff_users WHERE username = 'admin'", UUID.class);
+			var typeId = jdbc.queryForObject("SELECT id FROM produce_types WHERE code = 'ONION'", UUID.class);
+			var unitId = UUID.fromString(unit("KG"));
+			jdbc.update("""
+				INSERT INTO stock_operations (id, branch_id, actor_id, kind, request_hash, posted_at)
+				VALUES (?, ?, ?, 'RECEIPT', ?, CURRENT_TIMESTAMP)
+				""", operationId, UUID.fromString(branch), actorId, "a".repeat(64));
+			for (int index = 0; index < 101; index++) {
+				var productId = UUID.randomUUID();
+				jdbc.update("""
+					INSERT INTO products (id, code, name, active, created_at, version, produce_type_id, base_unit_id)
+					VALUES (?, ?, 'Shared name', TRUE, CURRENT_TIMESTAMP, 0, ?, ?)
+					""", productId, "SHARED_" + index, typeId, unitId);
+				jdbc.update("""
+					INSERT INTO stock_batches (id, operation_id, branch_id, product_id, lot_code, received_date,
+						input_unit_id, input_quantity, received_quantity, conversion_numerator, conversion_denominator,
+						measured, quantity, created_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, ?, CURRENT_TIMESTAMP)
+					""", UUID.randomUUID(), operationId, UUID.fromString(branch), productId, "LOT-" + index, today,
+					unitId, index + 1, index + 1, 1, 1, index + 1);
+			}
+
+			var firstPage = admin.body(admin.get("/api/sales/reports/stock-valuation"));
+			var secondPage = admin.body(admin.get("/api/sales/reports/stock-valuation?page=1"));
+			var quantities = new java.util.HashSet<String>();
+			for (var row : firstPage.get("rows")) {
+				assertThat(row.get("saleId").isNull()).isTrue();
+				quantities.add(row.get("quantity").asText());
+			}
+			for (var row : secondPage.get("rows")) {
+				assertThat(row.get("saleId").isNull()).isTrue();
+				quantities.add(row.get("quantity").asText());
+			}
+			assertThat(firstPage.get("totalElements").asLong()).isEqualTo(101);
+			assertThat(firstPage.get("rows").size()).isEqualTo(100);
+			assertThat(secondPage.get("rows").size()).isEqualTo(1);
+			assertThat(quantities).hasSize(101);
+		}
+	}
+
+	@Test
 	void concurrentSalesCannotOversellAndConcurrentVoidRetriesCannotDoubleRestore() throws Exception {
 		try (var admin = browser(); var seller = browser(); var peer = browser(); var adminTwo = browser()) {
 			fixture(admin);
