@@ -43,9 +43,14 @@
         <li><a th:href="@{/ui/transfers(status='IN_TRANSIT')}">In transit / receive</a></li>
       </ul>
     </details>
+    <details class="nav-group" id="nav-expenses" th:if="${canExpenses}" th:open="${navGroup == 'expenses'}">
+      <summary>Expenses</summary>
+      <ul class="nav-children"><li><a th:href="@{/ui/expenses}" th:attr="aria-current=${page == 'expenses' ? 'page' : null}">Record &amp; history</a></li></ul>
+    </details>
     <details class="nav-group" id="nav-reports" th:if="${!salesReportKinds.isEmpty() or canStock or canAudit}" th:open="${navGroup == 'reports'}">
       <summary>Reports</summary>
       <ul class="nav-children">
+        <li th:if="${canProfit}"><a th:href="@{/ui/reports/net-profit}" th:attr="aria-current=${page == 'net-profit' ? 'page' : null}">Net profit after expenses and losses</a></li>
         <li th:each="kind : ${salesReportKinds}"><a th:href="@{/ui/reports/{path}(path=${kind.path})}"
           th:attr="aria-current=${page == 'sales-report' and report.kind == kind ? 'page' : null}" th:text="${kind.title}"></a></li>
         <li><a th:if="${canStock}" th:href="@{/ui/reports/stock}" th:attr="aria-current=${page == 'stock-report' ? 'page' : null}">Stock levels</a>
@@ -80,7 +85,7 @@
 </aside>
 <header th:fragment="header(title, subtitle)" class="page-header">
   <div><p class="eyebrow">PRIME ROOT</p><h1 th:text="${title}">Dashboard</h1><p class="muted" th:text="${subtitle}"></p></div>
-  <span class="badge">Phase 5 / Stock transfers</span>
+  <span class="badge">Phase 6 / Expenses &amp; net profit</span>
 </header>
 <form th:fragment="dates(action)" method="get" th:action="${action}" class="date-filter panel">
   <input th:if="${selectedBranch != null}" type="hidden" name="branchId" th:value="${selectedBranch}">

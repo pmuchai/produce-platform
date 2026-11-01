@@ -9,6 +9,11 @@
   <h2 th:text="'Welcome, ' + ${current.staff.fullName}">Welcome</h2>
   <form th:replace="~{layout :: dates(@{/home})}"></form>
   <section aria-label="Business trends" class="grid four">
+    <article class="card" th:if="${canProfit}" id="net-profit-card"><p class="eyebrow">NET PROFIT</p>
+      <p th:each="total : ${netProfit.totals}" th:text="${total.currency} + ' / ' + (${total.netProfit != null} ? ${total.netProfit} : 'Unavailable: unknown loss costs')"></p>
+      <p th:if="${netProfit.totals.isEmpty()}">No financial activity in the selected interval.</p>
+      <p class="hint">After recorded paid expenses and stock losses; before tax and unrecorded costs.</p>
+      <a th:href="@{/ui/reports/net-profit(start=${period.start},end=${period.end})}">View net profit</a></article>
     <article class="card" th:if="${canSales}" id="sales-card"><p class="eyebrow">SALES TREND</p><h2>Net sales revenue</h2>
       <p th:if="${sales.ownSalesOnly}" class="hint">Your own sales only</p>
       <p th:each="trend : ${salesTrends}" th:text="${trend.currency} + ' ' + ${trend.revenue} + ' / change ' + ${trend.change} + ' vs previous equal-length interval'"></p>

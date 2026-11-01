@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Expenses')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('Operating expenses', 'Paid costs within your authorized branch scope')}"></header>
+  <div th:replace="~{layout :: notice}"></div>
+  <p class="hint">Record payments already completed manually. This does not move money. Do not record inventory purchases, transfers or sales refunds here: their costs are already accounted for. Voiding corrects a recording error, not a refund, and reverses the expense on today's UTC date.</p>
+  <section class="panel" th:if="${createExpense}">
+    <h2>Record paid expense</h2>
+    <form id="expense-form" class="editor">
+      <label>Branch<select name="branchId" required><option value="">Choose branch</option><option th:each="branch : ${entry.branches}" th:value="${branch.id}" th:text="${branch.name}"></option></select></label>
+      <label>Paid date (UTC)<input name="paidDate" type="date" min="1970-01-01" th:max="${today}" th:value="${today}" required></label>
+      <label>Category<select name="category" required><option th:each="category : ${entry.categories}" th:value="${category}" th:text="${category}"></option></select></label>
+      <label>Description<input name="description" maxlength="500" required></label>
+      <label>Payee (optional)<input name="payee" maxlength="120"></label>
+      <label>Amount (<span th:text="${entry.currency}"></span>)<input name="amount" type="number" th:step="${entry.amountStep}" th:min="${entry.amountStep}" max="9999999999999" required></label>
+      <label>Payment method<select name="paymentMethod"><option value="CASH">Cash</option><option value="MPESA">M-Pesa</option><option value="BANK">Bank</option></select></label>
+      <label>Payment reference<input name="paymentReference" maxlength="120"></label>
+      <button type="submit">Record expense</button>
+    </form>
+  </section>
+  <form method="get" th:action="@{/ui/expenses}" class="date-filter panel">
+    <label>Branch<select name="branchId"><option value="">All accessible branches</option><option th:each="branch : ${history.branches}" th:value="${branch.id}" th:selected="${selectedBranch == branch.id}" th:text="${branch.name}"></option></select></label>
+    <label>Category<select name="category"><option value="">All categories</option><option th:each="category : ${categories}" th:value="${category}" th:selected="${selectedCategory == category}" th:text="${category}"></option></select></label>
+    <label>From (UTC)<input name="start" type="date" th:value="${period.start}" min="1970-01-01" th:max="${today}" required></label>
+    <label>To (UTC)<input name="end" type="date" th:value="${period.end}" min="1970-01-01" th:max="${today}" required></label>
+    <button type="submit">Apply filters</button>
+  </form>
+  <section class="panel">
+    <h2>Expense history</h2>
+    <p class="hint">Includes records paid in this interval or voided in this interval. Original entries are retained.</p>
+    <div class="table-wrap"><table><thead><tr><th>Paid date / branch</th><th>Category / description</th><th>Payee / recorded by</th><th>Amount</th><th>Payment</th><th>Status / correction</th></tr></thead>
+      <tbody><tr th:each="row : ${history.rows}">
+        <td><span th:text="${row.paidDate}"></span><br><span th:text="${row.branch}"></span></td>
+        <td><strong th:text="${row.category}"></strong><p th:text="${row.description}"></p></td>
+        <td><span th:text="${row.payee}"></span><br><span th:text="${row.actor}"></span></td>
+        <td th:text="${row.currency} + ' ' + ${row.amount}"></td>
+        <td><span th:text="${row.paymentMethod}"></span><br><span th:text="${row.paymentReference}"></span></td>
+        <td><span th:text="${row.voidedAt == null ? 'RECORDED' : 'VOIDED'}"></span>
+          <p th:if="${row.voidedAt != null}" th:text="${row.voidedAt} + ' / ' + ${row.voidReason}"></p>
+          <form th:if="${row.canVoid}" class="expense-void" th:attr="data-expense-id=${row.id}">
+            <label>Correction reason<input name="reason" maxlength="500" required></label><button type="submit">Void incorrect entry</button>
+          </form>
+        </td>
+      </tr><tr th:if="${history.rows.isEmpty()}"><td colspan="6">No expenses within these filters and your access scope.</td></tr></tbody>
+    </table></div>
+    <nav class="pagination" aria-label="Expense pages">
+      <a th:if="${history.page > 0}" th:href="@{/ui/expenses(branchId=${selectedBranch},category=${selectedCategory},start=${period.start},end=${period.end},page=${history.page - 1})}">Previous</a>
+      <span th:text="'Page ' + ${history.page + 1} + ' / ' + ${history.totalElements} + ' records'"></span>
+      <a th:if="${(history.page + 1) * 50 < history.totalElements}" th:href="@{/ui/expenses(branchId=${selectedBranch},category=${selectedCategory},start=${period.start},end=${period.end},page=${history.page + 1})}">Next</a>
+    </nav>
+  </section>
+</main>
+</body>
+</html>

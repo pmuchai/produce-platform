@@ -9,6 +9,8 @@ Phase 4 adds branch-bound paid sales, customer selection, automatic FEFO stock
 allocation, receipts, full-sale voids, gross profit and staff/branch sales reporting.
 Phase 5 adds atomic inter-branch dispatch, explicit in-transit stock, final
 arrival with shortages/damage, carrying-cost traceability and transfer history.
+Phase 6 adds paid operating expenses, audited recording corrections and
+currency-separated net-profit reporting after expenses and stock losses.
 
 ## Requirements
 
@@ -47,7 +49,10 @@ The application implements these capabilities:
 | `SALE_CREATE` | Post paid sales in exactly one assigned branch; quote totals and view own receipts/performance |
 | `SALES_VIEW` | Read all sales and staff performance within assigned branch scope |
 | `SALE_VOID` | Void a whole sale within scope after all goods are returned and a full manual refund is confirmed |
-| `PROFIT_VIEW` | View purchase/carrying costs on inventory, sales and transfers, including arrival/loss costs and financial reports |
+| `PROFIT_VIEW` | View purchase/carrying costs, gross profit and net profit including aggregated expenses and stock losses |
+| `EXPENSE_VIEW` | View expense history within assigned branch scope |
+| `EXPENSE_CREATE` | Record already-paid operating expenses in active branches within scope |
+| `EXPENSE_VOID` | Correct an erroneous expense by an audited void within branch scope |
 
 Permissions are independent: managing does not implicitly grant viewing.
 Only these exact permission codes in the validated ID token's `app_roles`
@@ -124,6 +129,98 @@ their posting permission for the workspace screens. Dispatch authorization is
 against the source; receipt authorization is against the destination. Dispatchers
 can choose any active destination without receiving authority there; the
 transfer picker exposes only destination IDs/names, not its inventory.
+
+## Expenses and net profit (Phase 6)
+
+Add `EXPENSE_VIEW`, `EXPENSE_CREATE` and `EXPENSE_VOID` to appropriate Keycloak
+client composites and role scope mappings, including `ADMIN` where intended,
+then sign in again. Expense entry/history needs `EXPENSE_VIEW`; recording
+additionally needs `EXPENSE_CREATE`, and correction needs `EXPENSE_VOID`.
+Permissions are independent. `PROFIT_VIEW` now also grants aggregated expense
+amounts and net-profit reports, without granting detailed expense-history access.
+There are no new local identities or configuration secrets.
+
+Open **Expenses > Record & history** at `/ui/expenses`. Record payments already
+completed manually: active branch, paid date in UTC, category (`RENT`,
+`UTILITIES`, `TRANSPORT`, `WAGES`, `MAINTENANCE`, `OTHER`), description, optional
+payee, positive amount, and cash/M-Pesa/bank payment method. The currency is
+the configured inventory/sales currency and is snapshotted per record.
+Amounts must fit its minor units exactly; excess decimals are rejected, not
+silently rounded. Noncash payments require an uppercase-normalized reference,
+unique per expense payment method across the business, including voided records.
+One payment reference cannot be split across several expense records in this
+release. No payment is collected or refunded by the application.
+
+Do not record stock purchases, transfers or sale refunds as operating expenses:
+the existing inventory/sales ledger already accounts for their relevant costs.
+Expenses are immutable. To correct a recording error, void it with a reason
+and re-enter the correct expense. Originals retain branch/staff snapshots,
+paid date, description and payment details; voids retain actor, UTC timestamp
+and reason. This is an administrative correction, **not a refund confirmation**.
+Create and void requests retain their UUID retry identities, enforce actor and
+payload fingerprints, and serialize within branch scope. A replay cannot double
+post or double void. Both actions emit audit events.
+
+History filters by branch, category and inclusive UTC dates, with 50 records
+per page. It includes records paid in the interval **or voided in the interval**,
+so corrections to older expenses remain visible.
+
+**Reports > Net profit after expenses and losses**, `/ui/reports/net-profit`,
+and the dashboard card require `PROFIT_VIEW`. The calculation is:
+
+```text
+Net profit = net sales - net COGS - net paid expenses
+             - net spoilage cost - finalized transfer loss cost
+```
+
+Sales/voids use their existing posting dates. Expenses use the paid date;
+expense voids reverse the amount on the correction's UTC date, not by rewriting
+an older report. Transfer shortages/damage are attributed to the **source branch**
+on final arrival, using the snapshotted loss cost. In-transit stock and successful
+transfers create no revenue or expense. Spoilage reversals offset the original
+loss; legacy known-cost losses use the existing prorated receipt-cost fallback.
+Generic inventory adjustments remain in Stock movements and are not silently
+classified as operating losses.
+
+Results are separated by branch and currency; totals cover all filtered rows,
+not only the current 100-row report page. Currencies are never combined or
+converted. Unknown loss costs are counted and suppress net profit. A loss with
+an unknown currency suppresses every currency's net-profit total in the selected
+scope, and the affected branch's results, rather than inventing a conversion.
+Displayed known-cost loss subtotals are not a complete valuation where costs
+are unknown. Reversing an unknown-cost spoilage entry removes that unresolved
+loss from the result.
+
+This is **recorded operating net profit**, not a statutory income statement:
+taxes, depreciation, financing, unpaid/accrued expenses and unrecorded costs
+are excluded. There is no expense-approval workflow, expense refund flow,
+payroll calculation, chart of accounts, general ledger or period closing.
+Reconcile the figures and accounting treatment with the business before relying
+on them. Gross-profit reports retain their existing meaning and exclude expenses.
+
+| API | Purpose |
+| --- | --- |
+| `GET /api/expenses/entry` | Active scoped branches, currency and expense categories |
+| `POST /api/expenses` | Record a paid expense with `requestId` |
+| `GET /api/expenses` | Filtered, paginated expense history |
+| `POST /api/expenses/{id}/void` | Correct an entry using `requestId` and reason |
+| `GET /api/finance/reports/net-profit` | Scoped branch/currency results; `branchId`, `start`, `end`, `page` |
+
+Back up PostgreSQL and rehearse migration **V10** on staging before deployment.
+It adds expenses and an event view without changing existing stock/sale balances.
+The migration interprets paid dates as UTC regardless of database session zone.
+`ExpenseIntegrationTests` covers recording/validation, scope, corrections,
+currency isolation, stock/sales/transfer loss integration and concurrent retries.
+`ExpenseMigrationTests` checks the V9 upgrade and UTC semantics. The existing
+Chrome workflow now records/voids an expense and visits the net-profit report.
+Optional real PostgreSQL checks reuse the same cases:
+
+```powershell
+.\mvnw.cmd "-Dtest=ExpenseIntegrationTests,ExpenseMigrationTests,PostgresExpenseIntegrationTests" test
+```
+
+Actual PostgreSQL checks are skipped unless the isolated `PG_TEST_URL` test
+configuration described below is supplied; H2 does not replace that verification.
 
 ## Inter-branch stock transfers (Phase 5)
 
@@ -805,7 +902,7 @@ payments require a reference, normalized to uppercase and unique per payment
 method across the business, including voided sales. One reference cannot fund
 multiple receipts. No money is collected or refunded by this application.
 Credit, partial payments, split tenders, payment gateways, partial returns,
-maintained selling-price lists, discounts as separate adjustments, expenses,
+maintained selling-price lists, discounts as separate adjustments, expenses (added in Phase 6),
 VAT calculation and eTIMS integration are outside this phase. Enter final
 unit prices; receipts explicitly state that they are **not tax invoices**.
 
@@ -1194,5 +1291,7 @@ The automated OIDC fixture is not started by this command. H2 data disappears
 when the process exits, so bootstrap is needed for every new manual H2 process.
 No PostgreSQL credentials are required in this mode.
 
-Next modules: accounting, farm tracking and AI. Sales/payments and inter-branch
-transfers already use the shared branch inventory ledger.
+Next modules: full accounting, farm tracking and AI. Expense recording and
+operating net-profit reporting are implemented in Phase 6; a general ledger
+and statutory accounting remain separate future work. Sales/payments and
+inter-branch transfers already use the shared branch inventory ledger.

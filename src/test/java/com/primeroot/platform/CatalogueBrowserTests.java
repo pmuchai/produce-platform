@@ -97,6 +97,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 				verifyInventoryWorkspace(chrome, branchId, productId);
 				verifySalesWorkspace(chrome, session, branchId, productId);
 				verifyTransferWorkspace(chrome, session, branchId, productId);
+				verifyExpenseWorkspace(chrome, branchId);
 				chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
 					"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
 				assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
@@ -417,6 +418,54 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		navigateSidebar(chrome, "transfers", "/ui/transfers");
 		assertThat(chrome.evaluate("document.querySelector('main').innerText").asText()).contains("RECEIVED", "UI Transfer Destination");
 		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+	}
+
+	private void verifyExpenseWorkspace(Chrome chrome, String branchId) throws Exception {
+		var paidDate = java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(10).toString();
+		navigateSidebar(chrome, "expenses", "/ui/expenses");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#expense-form');
+			f.elements.branchId.value = '%s'; f.elements.category.value = 'TRANSPORT';
+			f.elements.paidDate.value = '%s';
+			f.elements.description.value = 'UI fuel expense'; f.elements.amount.value = '12.34';
+			f.elements.paymentMethod.value = 'BANK'; f.elements.paymentMethod.dispatchEvent(new Event('change'));
+			f.elements.paymentReference.value = 'UI-EXPENSE-001'; f.requestSubmit(); return true; })()
+			""".formatted(branchId, paidDate));
+		chrome.await("document.querySelector('table').innerText.includes('UI fuel expense') && document.readyState === 'complete'");
+		chrome.ready();
+		assertThat(chrome.evaluate("document.querySelector('table').innerText").asText()).contains("12.34", "UI-EXPENSE-001");
+		assertThat(chrome.evaluate("new URLSearchParams(location.search).get('start')").asText()).isEqualTo(paidDate);
+		navigateSidebar(chrome, "reports", "/ui/reports/net-profit");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('.date-filter'); f.elements.start.value = '%s';
+			f.requestSubmit(); return true; })()
+			""".formatted(paidDate));
+		chrome.await("document.readyState === 'complete' && document.querySelector('main').innerText.includes('12.34')");
+		assertThat(chrome.evaluate("document.querySelector('main').innerText").asText()).contains("12.34", "Known stock losses");
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		navigateSidebar(chrome, "expenses", "/ui/expenses");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('.date-filter'); f.elements.start.value = '%s';
+			f.requestSubmit(); return true; })()
+			""".formatted(paidDate));
+		chrome.await("document.readyState === 'complete' && document.querySelector('.expense-void') !== null");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('.expense-void');
+			f.elements.reason.value = 'UI entry correction'; f.requestSubmit(); return true; })()
+			""");
+		chrome.await("document.querySelector('table').innerText.includes('VOIDED') && document.readyState === 'complete'");
+		chrome.ready();
+		assertThat(chrome.evaluate("document.querySelector('table').innerText").asText()).contains("UI entry correction");
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		navigateSidebar(chrome, "reports", "/ui/reports/net-profit");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('.date-filter'); f.elements.start.value = '%s';
+			f.requestSubmit(); return true; })()
+			""".formatted(paidDate));
+		chrome.await("document.readyState === 'complete' && document.querySelector('main').innerText.includes('Net expenses: 0.00')");
+		assertThat(chrome.evaluate("document.querySelector('main').innerText").asText()).contains("Net expenses: 0.00");
 	}
 
 	private void loginChrome(Chrome chrome, String subject, java.util.List<String> permissions, String name) throws Exception {

@@ -13,6 +13,10 @@ public final class PostingFingerprint {
 	}
 
 	public static String of(JsonMapper json, StockOperation.Kind kind, UUID actor, Object request) {
+		return of(json, kind.name(), actor, request);
+	}
+
+	public static String of(JsonMapper json, String kind, UUID actor, Object request) {
 		try {
 			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
 				.digest((kind + ":" + actor + ":" + json.writeValueAsString(request)).getBytes(StandardCharsets.UTF_8)));
