@@ -26,7 +26,7 @@
       </div>
       <div id="sale-lines">
         <div class="sale-line receipt-line">
-          <label class="cart-product"><span class="sr-only">Product</span><select name="productId" required><option value="">Choose product</option><option th:each="product : ${entry.products}" th:value="${product.id}" th:attr="data-unit=${product.baseUnitId}" th:text="${product.name}"></option></select></label>
+          <label class="cart-product"><span class="sr-only">Product</span><select name="productId" required><option value="">Choose product</option><option th:each="product : ${entry.products}" th:value="${product.id}" th:attr="data-unit=${product.baseUnitId}" th:text="${product.label}"></option></select></label>
           <button type="button" class="icon-button cart-remove" data-remove-sale-line aria-label="Remove product"><svg th:replace="~{layout :: icon('trash')}"></svg></button>
           <label>Unit<select name="unitId" required><option value="">Unit</option><option th:each="unit : ${entry.units}" th:value="${unit.id}" th:text="${unit.label}"></option></select></label>
           <label>Quantity<span class="quantity-control">
