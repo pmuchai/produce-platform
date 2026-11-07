@@ -93,12 +93,13 @@ public class WhatsAppOidcClient {
 			var rotated = body.path("refresh_token").asText(refreshToken);
 			if (rotated.isBlank() || rotated.length() > 12_000) throw denied();
 			var authorizedClient = authorizedClients.loadAuthorizedClient("keycloak", staff.getSubject());
-			if (authorizedClient == null) throw denied();
-			var authorizedRegistration = authorizedClient.getClientRegistration();
 			var principal = new StaffPrincipal(staff, identity, permissions);
-			authorizedClients.saveAuthorizedClient(new OAuth2AuthorizedClient(authorizedRegistration, staff.getSubject(),
-				authorizedClient.getAccessToken(), new OAuth2RefreshToken(rotated, Instant.now())),
-				new OAuth2AuthenticationToken(principal, principal.getAuthorities(), authorizedRegistration.getRegistrationId()));
+			if (authorizedClient != null) {
+				var authorizedRegistration = authorizedClient.getClientRegistration();
+				authorizedClients.saveAuthorizedClient(new OAuth2AuthorizedClient(authorizedRegistration, staff.getSubject(),
+					authorizedClient.getAccessToken(), new OAuth2RefreshToken(rotated, Instant.now())),
+					new OAuth2AuthenticationToken(principal, principal.getAuthorities(), authorizedRegistration.getRegistrationId()));
+			}
 			return new Grant(principal, rotated);
 		}
 		catch (java.io.IOException exception) {

@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
@@ -55,6 +56,7 @@ import static org.mockito.Mockito.reset;
 class WhatsAppIntegrationTests extends OidcTestSupport {
 	@Autowired private StaffService staff;
 	@Autowired private JdbcTemplate jdbc;
+	@Autowired private OAuth2AuthorizedClientService authorizedClients;
 	@Autowired private WhatsAppWorker worker;
 	@Autowired private WhatsAppCrypto crypto;
 	@MockitoSpyBean private WhatsAppAuthorization authorization;
@@ -126,6 +128,21 @@ class WhatsAppIntegrationTests extends OidcTestSupport {
 			message("refresh-before-relink", "254711111110", "sales today");
 			link(admin, "254711111110");
 			assertThat(admin.body(admin.get("/api/whatsapp/link")).get("sender").asText()).isEqualTo("254711111110");
+		}
+	}
+
+	@Test
+	void persistedWhatsAppGrantCanReportWithoutBrowserAuthorizedClient() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			link(admin, "254711111110");
+			var staffId = jdbc.queryForObject("SELECT subject FROM staff_users WHERE username = 'admin'", String.class);
+			authorizedClients.removeAuthorizedClient("keycloak", staffId);
+
+			message("report-without-browser-client", "254711111110", "sales today");
+
+			assertThat(replies.getLast()).contains("No sales or refunds recorded");
+			assertThat(jdbc.queryForObject("SELECT reauthentication_required FROM whatsapp_links", Boolean.class)).isFalse();
 		}
 	}
 
