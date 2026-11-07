@@ -217,6 +217,15 @@ public class InventoryService {
 	}
 
 	public Snapshot snapshot(UUID branchId, DashboardPeriod period, int page) {
+		return snapshot(branchId, period, period.previousFrom(), period.from(), page);
+	}
+
+	public Snapshot snapshot(UUID branchId, DashboardPeriod period, DashboardPeriod comparisonPeriod, int page) {
+		return snapshot(branchId, period, comparisonPeriod.from(), comparisonPeriod.until(), page);
+	}
+
+	private Snapshot snapshot(UUID branchId, DashboardPeriod period, Instant comparisonFrom, Instant comparisonUntil,
+			int page) {
 		var actor = access.requirePermission(Permission.STOCK_VIEW);
 		if (branchId != null) access.requireBranch(branchId);
 		if (page < 0 || page > 1_000_000) throw invalid("Page must be between 0 and 1000000");
@@ -259,7 +268,7 @@ public class InventoryService {
 			}
 		}
 		var totals = totals(ids, period.from(), period.until());
-		var previousTotals = totals(ids, period.previousFrom(), period.from());
+		var previousTotals = totals(ids, comparisonFrom, comparisonUntil);
 		var balances = new ArrayList<Balance>();
 		for (var key : knownProducts.keySet()) {
 			var product = knownProducts.get(key);

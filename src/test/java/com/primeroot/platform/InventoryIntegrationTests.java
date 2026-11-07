@@ -527,6 +527,28 @@ class InventoryIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void dashboardStockTotalsUseTheDisplayedPreviousMonth() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var product = product(admin);
+			var jan1 = postReceipt(admin, branch, product, "10");
+			movePosting(jan1.get("id").asText(), LocalDate.of(2024, 1, 1), 0);
+			var jan3 = postReceipt(admin, branch, product, "20");
+			movePosting(jan3.get("id").asText(), LocalDate.of(2024, 1, 3), 0);
+			var jan1Spoilage = admin.body(admin.mutate("POST", "/api/inventory/spoilage",
+				change(branch, jan1.get("movements").get(0).get("batchId").asText(), "1", "Jan 1 damage")));
+			movePosting(jan1Spoilage.get("id").asText(), LocalDate.of(2024, 1, 1), 60);
+			var jan3Spoilage = admin.body(admin.mutate("POST", "/api/inventory/spoilage",
+				change(branch, jan3.get("movements").get(0).get("batchId").asText(), "2", "Jan 3 damage")));
+			movePosting(jan3Spoilage.get("id").asText(), LocalDate.of(2024, 1, 3), 60);
+
+			var dashboard = admin.get("/home?month=2024-02").body();
+			assertThat(dashboard).contains("0 / 30.000000 KG", "0 / 3.000000 KG");
+		}
+	}
+
+	@Test
 	void thresholdsUseVersionPreconditionsAndExpiryAlertsOnlyIncludeAvailableBatches() throws Exception {
 		try (var admin = browser()) {
 			admin.adminLogin();

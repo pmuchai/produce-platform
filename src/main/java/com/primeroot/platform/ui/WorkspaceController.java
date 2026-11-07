@@ -152,7 +152,7 @@ public class WorkspaceController {
 		}
 
 		if (Boolean.TRUE.equals(model.getAttribute("canStock"))) {
-			var snapshot = inventory.snapshot(null, period, 0);
+			var snapshot = inventory.snapshot(null, period, window.previous(), 0);
 			model.addAttribute("inventory", snapshot);
 			var stock = DashboardSummary.stock(snapshot.balances());
 			model.addAttribute("liveStock", stock.stream().limit(3).toList());
