@@ -16,6 +16,10 @@
   <a class="brand" th:href="@{/home}"><img class="brand-mark" th:src="@{/assets/prime-root-mark.svg}" width="44" height="44" alt="">Prime Root</a>
   <p class="nav-caption">WORKSPACE</p>
   <nav aria-label="Main navigation">
+    <details class="nav-group" id="nav-whatsapp" th:if="${canWhatsApp}" th:open="${navGroup == 'whatsapp'}">
+      <summary>WhatsApp</summary>
+      <ul class="nav-children"><li><a th:href="@{/ui/whatsapp}" th:attr="aria-current=${page == 'whatsapp' ? 'page' : null}">Link reporting account</a></li></ul>
+    </details>
     <details class="nav-group" id="nav-dashboard" th:open="${navGroup == 'dashboard'}">
       <summary>Dashboard</summary>
       <ul class="nav-children"><li><a th:href="@{/home}" th:attr="aria-current=${page == 'dashboard' ? 'page' : null}">Overview</a></li></ul>

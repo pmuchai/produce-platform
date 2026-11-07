@@ -15,11 +15,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.primeroot.platform.access.StaffService;
+import com.primeroot.platform.whatsapp.WhatsAppTransport;
+import com.primeroot.platform.whatsapp.WhatsAppWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.JsonNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,10 +30,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 @EnabledIfSystemProperty(named = "ui.browser", matches = ".+")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
 	"platform.bootstrap.enabled=false", "server.servlet.session.cookie.secure=false", "platform.inventory.currency=KES",
-	"spring.datasource.url=jdbc:h2:mem:catalogue-browser-tests;MODE=PostgreSQL"})
+	"spring.datasource.url=jdbc:h2:mem:catalogue-browser-tests;MODE=PostgreSQL",
+	"platform.whatsapp.enabled=true", "platform.whatsapp.worker-enabled=false",
+	"platform.whatsapp.app-secret=0123456789abcdef0123456789abcdef",
+	"platform.whatsapp.verify-token=test-only-verification-token-32-characters",
+	"platform.whatsapp.access-token=test-only-meta-token", "platform.whatsapp.phone-number-id=123456789",
+	"platform.whatsapp.business-number=254700000000", "platform.whatsapp.api-version=v24.0",
+	"platform.whatsapp.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="})
 class CatalogueBrowserTests extends OidcTestSupport {
 	@Autowired
 	private StaffService staff;
+	@Autowired private WhatsAppWorker whatsappWorker;
+	@MockitoBean private WhatsAppTransport whatsappTransport;
 
 	Path profile = Path.of("target", "browser-profiles", java.util.UUID.randomUUID().toString()).toAbsolutePath();
 
@@ -98,6 +109,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 				verifySalesWorkspace(chrome, session, branchId, productId);
 				verifyTransferWorkspace(chrome, session, branchId, productId);
 				verifyExpenseWorkspace(chrome, branchId);
+				verifyWhatsAppWorkspace(chrome);
 				chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
 					"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
 				assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
@@ -107,6 +119,30 @@ class CatalogueBrowserTests extends OidcTestSupport {
 				assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
 			}
 		}
+	}
+
+	private void verifyWhatsAppWorkspace(Chrome chrome) throws Exception {
+		navigateSidebar(chrome, "whatsapp", "/ui/whatsapp");
+		chrome.evaluate("document.getElementById('whatsapp-create').click(); true");
+		chrome.await("!document.getElementById('whatsapp-code').hidden");
+		var command = chrome.evaluate("document.getElementById('whatsapp-command').textContent").asText();
+		assertThat(command).startsWith("LINK ").hasSize(48);
+		var bytes = json.writeValueAsBytes(WhatsAppIntegrationTests.payload("browser-link", "254722222222", command, "123456789"));
+		try (var client = HttpClient.newHttpClient()) {
+			var response = client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/whatsapp/webhook"))
+				.header("Content-Type", "application/json").header("X-Hub-Signature-256", WhatsAppIntegrationTests.signature(bytes))
+				.POST(HttpRequest.BodyPublishers.ofByteArray(bytes)).build(), HttpResponse.BodyHandlers.ofString());
+			assertThat(response.statusCode()).isEqualTo(200);
+		}
+		assertThat(whatsappWorker.processOne()).isTrue();
+		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/whatsapp"));
+		chrome.await("document.getElementById('whatsapp-confirm') !== null && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.body.innerText").asText()).contains("+254722222222");
+		chrome.evaluate("document.getElementById('whatsapp-confirm').click(); true");
+		chrome.await("document.body.innerText.includes('Linked WhatsApp number:') && document.getElementById('whatsapp-confirm') === null");
+		chrome.ready();
+		chrome.evaluate("document.getElementById('whatsapp-unlink').click(); true");
+		chrome.await("document.body.innerText.includes('No WhatsApp account linked.') && document.getElementById('whatsapp-unlink') === null");
 	}
 
 	private void verifyPublicLogin(Chrome chrome) throws Exception {
@@ -193,7 +229,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		navigateSidebar(chrome, "sales", "/ui/sales");
 		assertThat(chrome.evaluate("""
 			[...document.querySelectorAll('.sidebar .nav-group')].map(group => group.id).join(',')
-			""").asText()).isEqualTo("nav-dashboard,nav-sales,nav-reports");
+			""").asText()).isEqualTo("nav-whatsapp,nav-dashboard,nav-sales,nav-reports");
 		assertThat(chrome.evaluate("document.querySelector('#sale-customer').value").asText()).isEqualTo("Walk-ins");
 		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.saleDate.value").asText())
 			.isEqualTo(java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString());
