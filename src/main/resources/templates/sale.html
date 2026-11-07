@@ -31,7 +31,7 @@
           <label>Unit<select name="unitId" required><option value="">Unit</option><option th:each="unit : ${entry.units}" th:value="${unit.id}" th:text="${unit.label}"></option></select></label>
           <label>Quantity<span class="quantity-control">
             <button type="button" class="icon-button" data-quantity-change="-1" aria-label="Decrease quantity"><svg th:replace="~{layout :: icon('minus')}"></svg></button>
-            <input name="quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required value="1">
+            <input name="quantity" aria-label="Quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required value="1">
             <button type="button" class="icon-button" data-quantity-change="1" aria-label="Increase quantity"><svg th:replace="~{layout :: icon('plus')}"></svg></button>
           </span></label>
           <label><span th:text="'Price / unit (' + ${entry.currency} + ')'"></span><input name="unitPrice" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required placeholder="0.00"></label>
