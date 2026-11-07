@@ -32,7 +32,7 @@ final class OidcTestProvider implements AutoCloseable {
 	static final String CLIENT_SECRET = "test-only-client-secret";
 	static final String ADMIN_SUBJECT = "approved-admin-subject";
 
-	enum Fault { NONE, ISSUER, AUDIENCE, SIGNATURE, NONCE, EXPIRED, SHORT_LIVED }
+	enum Fault { NONE, ISSUER, AUDIENCE, SIGNATURE, NONCE, EXPIRED, SHORT_LIVED, SUBJECT, REVOKED }
 
 	record Identity(String subject, Object roles, Fault fault) {
 	}
@@ -45,6 +45,8 @@ final class OidcTestProvider implements AutoCloseable {
 	private final com.nimbusds.jose.jwk.RSAKey wrongKey;
 	private final JsonMapper json = JsonMapper.builder().build();
 	private final Map<String, Grant> codes = new ConcurrentHashMap<>();
+	private final Map<String, Grant> refreshTokens = new ConcurrentHashMap<>();
+	private final Map<String, Identity> currentIdentities = new ConcurrentHashMap<>();
 	private volatile Identity identity;
 
 	OidcTestProvider() throws IOException, JOSEException {
@@ -71,6 +73,7 @@ final class OidcTestProvider implements AutoCloseable {
 
 	void identity(String subject, Object roles, Fault fault) {
 		identity = new Identity(subject, roles, fault);
+		currentIdentities.put(subject, identity);
 	}
 
 	private void discovery(HttpExchange exchange) throws IOException {
@@ -111,6 +114,20 @@ final class OidcTestProvider implements AutoCloseable {
 			return;
 		}
 		var parameters = decode(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+		if ("refresh_token".equals(parameters.get("grant_type"))) {
+			var original = refreshTokens.remove(parameters.get("refresh_token"));
+			if (original == null) {
+				reply(exchange, 400, Map.of("error", "invalid_grant"));
+				return;
+			}
+			var current = currentIdentities.get(original.identity().subject());
+			if (current.fault() == Fault.REVOKED) {
+				reply(exchange, 400, Map.of("error", "invalid_grant"));
+				return;
+			}
+			issue(exchange, new Grant(original.parameters(), current));
+			return;
+		}
 		var grant = codes.remove(parameters.get("code"));
 		if (grant == null || !"authorization_code".equals(parameters.get("grant_type"))
 				|| !grant.parameters().get("redirect_uri").equals(parameters.get("redirect_uri"))
@@ -118,8 +135,14 @@ final class OidcTestProvider implements AutoCloseable {
 			reply(exchange, 400, Map.of("error", "invalid_grant"));
 			return;
 		}
+		issue(exchange, grant);
+	}
+
+	private void issue(HttpExchange exchange, Grant grant) throws IOException {
+		var refresh = UUID.randomUUID().toString();
+		refreshTokens.put(refresh, grant);
 		reply(exchange, 200, Map.of("access_token", "test-only-opaque-access-token", "token_type", "Bearer",
-			"expires_in", 300, "id_token", signedToken(grant)));
+			"expires_in", 300, "id_token", signedToken(grant), "refresh_token", refresh));
 	}
 
 	private String signedToken(Grant grant) throws IOException {
@@ -127,7 +150,7 @@ final class OidcTestProvider implements AutoCloseable {
 		var now = Instant.now();
 		var claims = new JWTClaimsSet.Builder()
 			.issuer(fault == Fault.ISSUER ? issuer() + "/wrong" : issuer())
-			.subject(grant.identity().subject())
+			.subject(fault == Fault.SUBJECT ? "different-subject" : grant.identity().subject())
 			.audience(fault == Fault.AUDIENCE ? "different-client" : CLIENT_ID)
 			.issueTime(Date.from(now.minusSeconds(5)))
 			.expirationTime(Date.from(fault == Fault.EXPIRED ? now.minusSeconds(120)
@@ -155,6 +178,8 @@ final class OidcTestProvider implements AutoCloseable {
 				reply(exchange, 400, Map.of("error", "invalid_id_token_hint"));
 				return;
 			}
+			var subject = token.getJWTClaimsSet().getSubject();
+			refreshTokens.entrySet().removeIf(entry -> entry.getValue().identity().subject().equals(subject));
 		}
 		catch (java.text.ParseException exception) {
 			throw new IOException("Invalid logout ID-token hint", exception);

@@ -8,7 +8,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
@@ -26,6 +25,11 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
 @Configuration
 public class SecurityConfiguration {
 	@Bean
+	ConditionalAuthorizedClientService authorizedClientService() {
+		return new ConditionalAuthorizedClientService();
+	}
+
+	@Bean
 	OAuth2UserService<OidcUserRequest, OidcUser> staffOidcUserService(OidcStaffService staff) {
 		var delegate = new OidcUserService();
 		delegate.setRetrieveUserInfo(request -> false);
@@ -42,8 +46,11 @@ public class SecurityConfiguration {
 		var logout = new OidcClientInitiatedLogoutSuccessHandler(registrations);
 		logout.setPostLogoutRedirectUri("{baseUrl}/");
 		http
-			.csrf(Customizer.withDefaults())
+			.csrf(csrf -> csrf.ignoringRequestMatchers(request -> "POST".equals(request.getMethod())
+				&& "/api/whatsapp/webhook".equals(request.getServletPath())))
 			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers(HttpMethod.GET, "/api/whatsapp/webhook").permitAll()
+				.requestMatchers(HttpMethod.POST, "/api/whatsapp/webhook").permitAll()
 				.requestMatchers(HttpMethod.GET, "/", "/login", "/access-pending", "/actuator/health", "/api/auth/csrf",
 					"/assets/app.css", "/assets/app.js", "/assets/prime-root-mark.svg",
 					"/assets/produce-distribution.svg").permitAll()

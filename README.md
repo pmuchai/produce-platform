@@ -12,6 +12,128 @@ arrival with shortages/damage, carrying-cost traceability and transfer history.
 Phase 6 adds paid operating expenses, audited recording corrections and
 currency-separated net-profit reporting after expenses and stock losses.
 
+## WhatsApp sales reporting (opt-in V1)
+
+The optional WhatsApp Cloud API adapter supports verified staff linking and one
+typed, read-only `get_sales_summary` tool. It reuses `SalesReportService`; it
+does not execute arbitrary SQL, use an LLM, or permit business mutations.
+The tool is invoked in-process by the messaging worker and is also available
+to signed-in staff at `GET /api/whatsapp/sales-summary?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&branchId=UUID`.
+Dates and branch are optional; both omitted dates mean today UTC. Supplied
+dates must satisfy the existing inclusive, maximum-366-day reporting policy.
+This V1 does **not** expose a remote MCP protocol endpoint or MCP OAuth
+discovery; an MCP transport can wrap this same tool in a later integration.
+
+### Operator setup
+
+WhatsApp is disabled by default. Create a Meta app with the WhatsApp use case,
+start with its test phone number/allowed recipients, and set these environment
+variables on the application process (or equivalent Spring properties):
+
+| Environment variable | Value |
+| --- | --- |
+| `PLATFORM_WHATSAPP_ENABLED` | `true` |
+| `PLATFORM_WHATSAPP_APPSECRET` | Meta app secret, 32 hexadecimal characters |
+| `PLATFORM_WHATSAPP_VERIFYTOKEN` | Your own random webhook verification secret, at least 32 characters |
+| `PLATFORM_WHATSAPP_ACCESSTOKEN` | Meta API token with `whatsapp_business_messaging`; use an appropriately managed system-user token beyond testing |
+| `PLATFORM_WHATSAPP_PHONENUMBERID` | Meta's numeric phone number **ID**, not the displayed telephone number |
+| `PLATFORM_WHATSAPP_BUSINESSNUMBER` | Bot's international telephone number, digits only, without `+` |
+| `PLATFORM_WHATSAPP_APIVERSION` | An explicitly selected supported Graph version, e.g. `v24.0`; check Meta's current support schedule |
+| `PLATFORM_WHATSAPP_ENCRYPTIONKEY` | Base64 encoding of 32 cryptographically random bytes |
+
+Keep secrets out of Git and logs. Store the encryption key in your deployment
+secret manager, separately from database backups; preserve it across restarts.
+Changing this key makes existing link grants unreadable and requires staff to
+sign in again and relink. Grant tokens are AES-256-GCM encrypted with their
+staff identity bound as authenticated data. No new dependencies are required.
+Invalid enabled configuration fails startup rather than accepting unsigned
+callbacks or using incomplete credentials.
+
+Expose `https://YOUR-APP/api/whatsapp/webhook` over public HTTPS and register
+it in Meta's webhook configuration using your verification token. Subscribe
+to the `messages` field. The GET challenge response is plain text; POST
+callbacks require a valid `X-Hub-Signature-256` HMAC over the exact raw body.
+Only messages addressed to the configured phone number ID are accepted.
+Never expose PostgreSQL or a development Keycloak admin console publicly.
+
+Keycloak's existing confidential `keycloak` registration must issue refresh
+tokens and include `app_roles` in **refreshed ID tokens**, just as it does for
+login. Client-secret basic/post authentication is supported. Access-token
+role mapping is not required: the worker refreshes the linked user's grant
+and validates the signed ID token's issuer, subject, client audience,
+expiration, nonce when present, and permission claim on every report.
+No ADMIN bot identity or permanent copied permission list is used.
+Keycloak refresh-token rotation is supported and updated grants are persisted
+before querying reports. Keycloak session expiry/revocation or unavailable
+refresh grants requires a fresh browser login and renewed linking; offline
+access is not requested. WhatsApp queries can keep an ordinary refreshable
+Keycloak session active, independently of the browser's short authentication age.
+
+### Staff workflow
+
+1. Sign into Prime Root as approved staff and open **WhatsApp > Link reporting account**.
+2. Request a link code, then send the displayed `LINK ...` message to the bot
+   from your own WhatsApp account. Codes expire after ten minutes, are stored
+   only as hashes, and can verify a sender only once.
+3. Refresh the page, check the full verified number, and confirm it in the
+   authenticated, CSRF-protected browser. A WhatsApp message alone does not
+   enable reporting. A number already linked to another staff member cannot
+   be claimed without unlinking first.
+4. Send `What is the total amount sold today?`, `sales today`,
+   `sales yesterday`, or `sales this week` (Monday through the message date).
+5. Use **Unlink / cancel** to revoke the link or abandon a pending challenge.
+   To renew expired access, sign out and sign in again before requesting a
+   new code. Confirming a new link replaces the old number and grant.
+
+Only `SALES_VIEW` grants branch-wide sales totals; `SALE_CREATE` alone
+returns explicitly labelled **your sales only**. Local approval, active
+status, security version and branch scope are checked each time. Disabling
+a branch removes it from branch-scoped reporting. Staff security changes
+invalidate the existing link until renewed. Old queued requests cannot
+inherit a newly created link, even when its telephone number is unchanged.
+
+Replies include UTC dates/scope, currency-separated **net sales**, sales
+counts and refund counts. Amounts come from complete filtered report totals,
+not a displayed page or model arithmetic. Backdated sales use their selected
+business date; refunds use their actual posting date. Revenue is not profit.
+No customer detail, staff-level breakdown, cost or profit data is returned.
+No sales/refunds means an explicit empty result, not an invented currency
+or a combined cross-currency zero.
+
+### Delivery and operational limits
+
+Callbacks are bounded to 128 KiB and 100 messages, durably deduplicated by
+Meta message ID, and acknowledged before network/report processing.
+The database-backed worker claims jobs with renewable-by-recovery leases;
+each sender is limited to ten queued messages per rolling minute.
+Only recognized command identifiers and link-code hashes are stored, not
+raw chat text or financial replies. Message records expire after 30 days.
+Link requests, verification, confirmation, unlinking and sales queries are
+audited without token values.
+
+Outbound calls have connection/request timeouts. Identity-service transient
+failures and explicit Meta 429 responses retry at most three attempts with
+backoff and fresh authorization. A send is durably marked `SENDING` before
+network I/O. Network ambiguity, Meta 5xx, or a crash during sending becomes
+`UNCERTAIN` and is **not** automatically resent: exactly-once delivery cannot
+be guaranteed by the external API. `SENT` means Meta accepted the send, not
+that the handset received it. Inspect `whatsapp_messages.status` for
+`FAILED`, `UNCERTAIN` and rate-limited `DROPPED` jobs when diagnosing delivery.
+
+No reply is sent for messages already outside Meta's 24-hour service window.
+This version sends only prompt-triggered, free-form replies, not scheduled
+updates or templates. Unknown prompts receive fixed help, not AI-generated
+answers. Number control is verified during linking; unlink promptly if a
+phone is lost, shared or reassigned. Reports necessarily travel through Meta
+and WhatsApp, so obtain appropriate staff consent and follow your business
+data-handling policy.
+
+Automated tests use the signed local OIDC provider with rotating refresh
+tokens and a mocked Meta transport, including a real Chrome linking workflow.
+Live delivery still requires the operator's Meta credentials, registered
+webhook and phone-number setup. See [Meta's setup guide](https://developers.facebook.com/documentation/business-messaging/whatsapp/get-started)
+and [messaging policy](https://business.whatsapp.com/policy).
+
 ## Requirements
 
 - JDK 25 with `JAVA_HOME` configured, and the included Maven Wrapper.
@@ -730,8 +852,8 @@ mutation forms, even for administrators.
   Existing stock and transfer grade snapshots remain untouched; unmatched
   historical names are retained without guessing a classification identity.
   Existing product definitions are not merged or renamed automatically.
-  V13 is reserved for the separate WhatsApp feature; this branch can migrate
-  directly from V12 to V14. Deploy V13 before V14 when combining both releases.
+  V13 adds WhatsApp reporting; Flyway applies V13 before V14 when upgrading
+  from V12, or applies V14 alone to an existing V13 deployment.
 - Select a mass/count unit compatible with the product, a defined fixed
   packaging conversion, or enter the **actual total measured base quantity**
   for variable-weight packaging. That last value is the total for the line,
