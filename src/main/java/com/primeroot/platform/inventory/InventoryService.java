@@ -107,6 +107,10 @@ public class InventoryService {
 		if (request.receivedDate().isBefore(LocalDate.of(1970, 1, 1)) || request.receivedDate().isAfter(today)) {
 			throw invalid("Received date must be between 1970-01-01 and today in UTC");
 		}
+		var grades = new HashMap<UUID, ProductClassification>();
+		request.lines().stream().map(InventoryDtos.ReceiptLine::gradeId).filter(id -> id != null).distinct().sorted()
+			.forEach(id -> grades.put(id, classifications.findByIdForUpdate(id)
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Grade not found"))));
 		var operation = operations.saveAndFlush(new StockOperation(request.requestId(), branch, actor.getId(),
 			Kind.RECEIPT, hash, request.source().trim(), request.notes()));
 		for (var line : request.lines()) {
@@ -115,10 +119,8 @@ public class InventoryService {
 				throw invalid("Expiry/best-before date must be on or after receipt and no later than 9999-12-31");
 			}
 			var conversion = quantities.resolve(line.productId(), line.unitId(), line.quantity(), line.measuredBaseQuantity());
-			ProductClassification grade = null;
+			ProductClassification grade = grades.get(line.gradeId());
 			if (line.gradeId() != null) {
-				grade = classifications.findByIdForUpdate(line.gradeId())
-					.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Grade not found"));
 				if (!grade.isActive() || grade.getKind() != ProductClassification.Kind.GRADE
 						|| !grade.getProduceType().getId().equals(conversion.product().getProduceType().getId())) {
 					throw invalid("Choose an active grade belonging to the product's produce type");
