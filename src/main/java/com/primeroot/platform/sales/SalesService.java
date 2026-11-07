@@ -84,7 +84,7 @@ public class SalesService {
 		var branch = sellingBranch();
 		return new SalesDtos.Entry(branch.getId(), branch.getName(), currency.getCurrencyCode(),
 			products.findAllByOrderByCode().stream().filter(product -> product.isActive() && product.getBaseUnit().isActive()
-				&& product.getProduceType().isActive() && (product.getGrade() == null || product.getGrade().isActive())
+				&& product.getProduceType().isActive()
 				&& (product.getVariety() == null || product.getVariety().isActive()))
 				.map(product -> new SalesDtos.Option(product.getId(), product.getCode() + " / " + product.getName())).toList(),
 			units.findAllByOrderByCode().stream().filter(UnitOfMeasure::isActive)

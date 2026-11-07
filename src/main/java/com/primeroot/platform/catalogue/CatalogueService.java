@@ -86,12 +86,12 @@ public class CatalogueService {
 		if (id != null) {
 			requireMatchingVersion(ifMatch, item.getVersion());
 		}
-		if (id != null && products.existsByVarietyIdOrGradeId(id, id)
+		if (id != null && (products.existsByVarietyId(id) || classifications.existsAsReceivedGrade(id))
 				&& (item.getKind() != request.kind() || !item.getProduceType().getId().equals(type.getId()))) {
-			throw conflict("A classification used by products cannot change kind or produce type");
+			throw conflict("A classification used by products or received stock cannot change kind or produce type");
 		}
 		if (id != null && !request.active()
-				&& products.existsByVarietyIdAndActiveTrueOrGradeIdAndActiveTrue(id, id)) {
+				&& products.existsByVarietyIdAndActiveTrue(id)) {
 			throw conflict("Deactivate products using this classification first");
 		}
 		item.update(request.code(), request.name(), request.active());
@@ -132,7 +132,6 @@ public class CatalogueService {
 		var actor = access.requireGlobalPermission(Permission.CATALOGUE_MANAGE);
 		var type = findForUpdate(types, request.produceTypeId());
 		var variety = classification(request.varietyId(), type, ProductClassification.Kind.VARIETY);
-		var grade = classification(request.gradeId(), type, ProductClassification.Kind.GRADE);
 		var item = id == null ? new Product() : findForUpdate(products, id);
 		var unit = findForUpdate(units, request.baseUnitId());
 		if (unit.getDimension() == UnitOfMeasure.Dimension.PACKAGING) {
@@ -141,7 +140,7 @@ public class CatalogueService {
 		if (request.active() && id != null) {
 			units.findPackagingUnitsByProductIdForUpdate(id);
 		}
-		requireActive(request.active(), type, unit, variety, grade);
+		requireActive(request.active(), type, unit, variety);
 		if (id != null) {
 			requireMatchingVersion(ifMatch, item.getVersion());
 		}
@@ -152,7 +151,7 @@ public class CatalogueService {
 			throw conflict("Reactivate the product's packaging units before activating the product");
 		}
 		item.update(request.code(), request.name(), request.active());
-		item.define(type, variety, grade, unit);
+		item.define(type, variety, unit);
 		products.saveAndFlush(item);
 		record(actor.getId(), id, "PRODUCT", item.getId());
 		return ProductResponse.from(item);

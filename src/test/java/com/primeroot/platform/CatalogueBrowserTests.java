@@ -47,6 +47,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 					.asBoolean()).isTrue();
 				chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/catalogue"));
 				chrome.await("document.title.startsWith('Catalogue') && document.readyState === 'complete'");
+				assertThat(chrome.evaluate("document.querySelector('form[data-resource=\"products\"] [name=\"gradeId\"]') === null").asBoolean()).isTrue();
 				chrome.evaluate("""
 					(() => { const f = document.querySelector('form[data-resource="types"]');
 					f.closest('details').open = true; f.elements.code.value = 'UI_TOMATO';
@@ -94,7 +95,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 				chrome.await("document.querySelector('form[data-resource=\"types\"] .form-message').classList.contains('error')");
 				var branchId = verifyBranchWorkspace(chrome, session);
 				var productId = session.body(session.get("/api/catalogue")).get("products").get(0).get("id").asText();
-				verifyInventoryWorkspace(chrome, branchId, productId);
+				verifyInventoryWorkspace(chrome, session, branchId, productId);
 				verifySalesWorkspace(chrome, session, branchId, productId);
 				verifyTransferWorkspace(chrome, session, branchId, productId);
 				verifyExpenseWorkspace(chrome, branchId);
@@ -609,46 +610,74 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		}
 	}
 
-	private void verifyInventoryWorkspace(Chrome chrome, String branchId, String productId) throws Exception {
+	private void verifyInventoryWorkspace(Chrome chrome, Browser admin, String branchId, String productId) throws Exception {
+		var catalogue = admin.body(admin.get("/api/catalogue"));
+		var type = catalogue.get("products").get(0).get("produceTypeId").asText();
+		var small = admin.body(admin.mutate("POST", "/api/catalogue/classifications", Map.of("code", "UI_SMALL", "name", "Small",
+			"active", true, "produceTypeId", type, "kind", "GRADE"))).get("id").asText();
+		var medium = admin.body(admin.mutate("POST", "/api/catalogue/classifications", Map.of("code", "UI_MEDIUM", "name", "Medium",
+			"active", true, "produceTypeId", type, "kind", "GRADE"))).get("id").asText();
+		var otherType = admin.body(admin.mutate("POST", "/api/catalogue/types", Map.of("code", "UI_OTHER", "name", "Other type", "active", true))).get("id").asText();
+		admin.mutate("POST", "/api/catalogue/classifications", Map.of("code", "UI_OTHER_GRADE", "name", "Wrong-type grade",
+			"active", true, "produceTypeId", otherType, "kind", "GRADE"));
 		navigateSidebar(chrome, "stock", "/ui/stock-entries");
 		chrome.await("document.querySelector('#stock-receipt') !== null && document.readyState === 'complete'");
 		assertThat(chrome.evaluate("document.querySelector('h1').textContent").asText()).isEqualTo("Receive stock");
 		assertThat(chrome.evaluate("document.querySelector('#stock-history') === null").asBoolean()).isTrue();
+		chrome.evaluate("""
+			(() => { const line = document.querySelector('.receipt-line');
+			const product = line.querySelector('[name="productId"]');
+			product.value = '%s'; product.dispatchEvent(new Event('change', {bubbles: true}));
+			line.querySelector('[name="gradeId"]').value = '%s'; return true; })()
+			""".formatted(productId, small));
+		assertThat(chrome.evaluate("""
+			[...document.querySelector('.receipt-line [name="gradeId"]').options]
+			.filter(option => !option.disabled).map(option => option.text).join(',')
+			""").asText()).isEqualTo("Ungraded,Medium,Small");
+		chrome.evaluate("""
+			(() => { const product = document.querySelector('.receipt-line [name="productId"]');
+			product.value = ''; product.dispatchEvent(new Event('change', {bubbles: true})); return true; })()
+			""");
+		assertThat(chrome.evaluate("document.querySelector('.receipt-line [name=\"gradeId\"]').value").asText()).isEmpty();
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('#stock-receipt');
 			Object.defineProperty(globalThis.crypto, 'getRandomValues', {value: undefined, configurable: true});
 			f.elements.branchId.value = '%s'; f.elements.source.value = 'UI Farm';
 			const line = f.querySelector('.receipt-line');
 			line.querySelector('[name="productId"]').value = '%s';
+			line.querySelector('[name="productId"]').dispatchEvent(new Event('change', {bubbles: true}));
+			line.querySelector('[name="gradeId"]').value = '%s';
 			line.querySelector('[name="unitId"]').value = '10000000-0000-0000-0000-000000000001';
 			line.querySelector('[name="quantity"]').value = '2';
 			line.querySelector('[name="purchaseUnitCost"]').value = '80.123456';
-			line.querySelector('[name="lotCode"]').value = 'UI_KG_LOT';
+			line.querySelector('[name="lotCode"]').value = 'UI_DELIVERY_LOT';
 			document.querySelector('#add-receipt-line').click();
 			const measured = f.querySelectorAll('.receipt-line')[1];
 			measured.querySelector('[name="productId"]').value = '%s';
+			measured.querySelector('[name="productId"]').dispatchEvent(new Event('change', {bubbles: true}));
+			measured.querySelector('[name="gradeId"]').value = '%s';
 			measured.querySelector('[name="unitId"]').value = '10000000-0000-0000-0000-000000000005';
 			measured.querySelector('[name="quantity"]').value = '2';
 			measured.querySelector('[name="purchaseUnitCost"]').value = '2000';
 			measured.querySelector('[name="measuredBaseQuantity"]').value = '3.123456';
-			measured.querySelector('[name="lotCode"]').value = 'UI_MEASURED_LOT';
+			measured.querySelector('[name="lotCode"]').value = 'UI_DELIVERY_LOT';
 			f.requestSubmit(); return true; })()
-			""".formatted(branchId, productId, productId));
+			""".formatted(branchId, productId, small, productId, medium));
 		chrome.await("document.querySelector('#stock-receipt .form-message').classList.contains('error')");
 		assertThat(chrome.evaluate("document.querySelector('#stock-receipt .form-message').textContent").asText())
 			.contains("Secure request identifiers are unavailable");
 		chrome.evaluate("delete globalThis.crypto.getRandomValues; document.querySelector('#stock-receipt').requestSubmit(); true");
-		chrome.await("document.querySelector('#stock-batches').innerText.includes('UI_MEASURED_LOT')");
+		chrome.await("document.querySelector('#stock-batches').innerText.includes('UI_DELIVERY_LOT')");
 		chrome.ready();
 		assertThat(chrome.evaluate("document.querySelector('#stock-balances').innerText").asText()).contains("5.123456 KG");
 		assertThat(chrome.evaluate("document.querySelector('#stock-batches').innerText").asText())
-			.contains("KES 160.25", "KES 4000.00", "2000.000000 / BAG");
+			.contains("KES 160.25", "KES 4000.00", "2000.000000 / BAG", "Small", "Medium");
 		navigateSidebar(chrome, "stock", "/ui/stock");
 		chrome.await("document.querySelector('form[data-stock=\"spoilage\"]') !== null && document.readyState === 'complete'");
 		assertThat(chrome.evaluate("document.querySelector('h1').textContent").asText()).isEqualTo("Stock Movement");
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('form[data-stock="spoilage"]');
-			const batch = [...f.elements.batchId.options].find(o => o.text.includes('UI_MEASURED_LOT'));
+			const batch = [...f.elements.batchId.options].find(o => o.text.includes(' / Medium / UI_DELIVERY_LOT'));
 			f.elements.batchId.value = batch.value; f.elements.batchId.dispatchEvent(new Event('change'));
 			f.elements.quantity.value = '0.123456'; f.elements.reason.value = 'UI bruising';
 			f.requestSubmit(); return true; })()
@@ -657,7 +686,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		chrome.ready();
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('form[data-stock="adjustments"]');
-			const batch = [...f.elements.batchId.options].find(o => o.text.includes('UI_KG_LOT'));
+			const batch = [...f.elements.batchId.options].find(o => o.text.includes(' / Small / UI_DELIVERY_LOT'));
 			f.elements.batchId.value = batch.value; f.elements.batchId.dispatchEvent(new Event('change'));
 			f.elements.quantity.value = '1'; f.elements.reason.value = 'UI count correction';
 			f.requestSubmit(); return true; })()

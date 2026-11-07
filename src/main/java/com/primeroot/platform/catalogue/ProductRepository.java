@@ -12,8 +12,8 @@ import org.springframework.data.repository.query.Param;
 public interface ProductRepository extends JpaRepository<Product, UUID> {
 	List<Product> findAllByOrderByCode();
 	boolean existsByProduceTypeIdAndActiveTrue(UUID id);
-	boolean existsByVarietyIdOrGradeId(UUID varietyId, UUID gradeId);
-	boolean existsByVarietyIdAndActiveTrueOrGradeIdAndActiveTrue(UUID varietyId, UUID gradeId);
+	boolean existsByVarietyId(UUID varietyId);
+	boolean existsByVarietyIdAndActiveTrue(UUID varietyId);
 	boolean existsByBaseUnitIdAndActiveTrue(UUID id);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -28,6 +28,7 @@ class TransferIntegrationTests extends OidcTestSupport {
 	private String destination;
 	private String unrelated;
 	private String product;
+	private String grade;
 	private final LocalDate today = LocalDate.now(ZoneOffset.UTC);
 	private final List<String> transferPermissions = List.of("TRANSFER_VIEW", "TRANSFER_DISPATCH", "TRANSFER_RECEIVE");
 
@@ -39,6 +40,38 @@ class TransferIntegrationTests extends OidcTestSupport {
 			jdbc.update("DELETE FROM " + table);
 		}
 		staff.bootstrap("admin", "Transfer Administrator", OidcTestProvider.ADMIN_SUBJECT);
+	}
+
+	@Test
+	void mixedGradeDeliveryKeepsSeparateGradesAndCostsThroughTransferArrival() throws Exception {
+		try (var admin = browser()) {
+			fixture(admin);
+			var type = jdbc.queryForObject("SELECT produce_type_id FROM products WHERE id = ?", UUID.class, UUID.fromString(product));
+			var small = admin.body(admin.mutate("POST", "/api/catalogue/classifications", Map.of("code", "SMALL", "name", "Small",
+				"active", true, "produceTypeId", type, "kind", "GRADE"))).get("id").asText();
+			var receipt = Map.of("requestId", UUID.randomUUID(), "branchId", source, "receivedDate", today.toString(),
+				"source", "Mixed delivery", "currency", "KES", "lines", List.of(
+					Map.of("productId", product, "unitId", unit("KG"), "quantity", "5", "purchaseUnitCost", "2", "lotCode", "SAME-LOT", "gradeId", small),
+					Map.of("productId", product, "unitId", unit("KG"), "quantity", "10", "purchaseUnitCost", "3", "lotCode", "SAME-LOT", "gradeId", grade)));
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", receipt).statusCode()).isEqualTo(201);
+			var dispatched = admin.body(admin.mutate("POST", "/api/transfers", dispatch("15")));
+			assertThat(dispatched.get("allocations").size()).isEqualTo(2);
+			var transferred = admin.mutate("POST", "/api/transfers/" + dispatched.get("transfer").get("id").asText() + "/receive",
+				receipt(arrivals(dispatched)));
+			assertThat(transferred.statusCode()).withFailMessage(transferred.body()).isEqualTo(200);
+			var batches = admin.body(admin.get("/api/inventory/batches?branchId=" + destination)).get("batches");
+			assertThat(batches.size()).isEqualTo(2);
+			var grades = new HashSet<String>();
+			for (var batch : batches) {
+				grades.add(batch.get("grade").asText());
+				assertThat(batch.get("lotCode").asText()).isEqualTo("SAME-LOT");
+				assertThat(batch.get("gradeId").asText()).isIn(small, grade);
+			}
+			assertThat(grades).containsExactlyInAnyOrder("Small", "Grade A");
+			assertThat(jdbc.queryForObject("SELECT SUM(remaining_cost) FROM stock_batches WHERE branch_id = ?", BigDecimal.class,
+				UUID.fromString(destination))).isEqualByComparingTo("40");
+			assertLedgers();
+		}
 	}
 
 	@Test
@@ -310,7 +343,8 @@ class TransferIntegrationTests extends OidcTestSupport {
 		try (var admin = browser(); var destinationSeller = browser(); var receiver = browser()) {
 			fixture(admin);
 			receive(admin, "10", "2", "CHAIN", today.plusDays(10));
-			jdbc.update("UPDATE products SET name = 'Renamed onions', grade_id = NULL WHERE id = ?", UUID.fromString(product));
+			jdbc.update("UPDATE products SET name = 'Renamed onions' WHERE id = ?", UUID.fromString(product));
+			jdbc.update("UPDATE product_classifications SET name = 'Renamed grade', active = FALSE WHERE id = ?", UUID.fromString(grade));
 			var dispatched = admin.body(admin.mutate("POST", "/api/transfers", dispatch("5")));
 			var id = dispatched.get("transfer").get("id").asText();
 			assertThat(dispatched.get("allocations").get(0).get("product").asText()).isEqualTo("Red onions");
@@ -356,10 +390,10 @@ class TransferIntegrationTests extends OidcTestSupport {
 		destination = branch(admin, "DESTINATION");
 		unrelated = branch(admin, "UNRELATED");
 		var type = admin.body(admin.mutate("POST", "/api/catalogue/types", Map.of("code", "ONION", "name", "Onions", "active", true))).get("id").asText();
-		var grade = admin.body(admin.mutate("POST", "/api/catalogue/classifications", Map.of("code", "GRADE_A", "name", "Grade A",
+		grade = admin.body(admin.mutate("POST", "/api/catalogue/classifications", Map.of("code", "GRADE_A", "name", "Grade A",
 			"active", true, "produceTypeId", type, "kind", "GRADE"))).get("id").asText();
 		product = admin.body(admin.mutate("POST", "/api/catalogue/products", Map.of("code", "ONION_KG", "name", "Red onions",
-			"active", true, "produceTypeId", type, "gradeId", grade, "baseUnitId", unit("KG")))).get("id").asText();
+			"active", true, "produceTypeId", type, "baseUnitId", unit("KG")))).get("id").asText();
 		for (var entry : Map.of("transfer-source", source, "transfer-peer", source, "transfer-destination", destination,
 				"transfer-unrelated", unrelated).entrySet()) {
 			assertThat(admin.mutate("POST", "/api/users", Map.of("username", entry.getKey(), "fullName", entry.getKey(),
@@ -374,7 +408,7 @@ class TransferIntegrationTests extends OidcTestSupport {
 	}
 	private void receive(Browser admin, String quantity, String cost, String lot, LocalDate expiry) throws Exception {
 		var line = new HashMap<String, Object>(Map.of("productId", product, "unitId", unit("KG"), "quantity", quantity,
-			"purchaseUnitCost", cost, "lotCode", lot));
+			"purchaseUnitCost", cost, "lotCode", lot, "gradeId", grade));
 		if (expiry != null) line.put("expiryDate", expiry.toString());
 		var response = admin.mutate("POST", "/api/inventory/receipts", Map.of("requestId", UUID.randomUUID(), "branchId", source,
 			"receivedDate", today.minusDays(10).toString(), "source", "Farm", "currency", "KES", "lines", List.of(line)));

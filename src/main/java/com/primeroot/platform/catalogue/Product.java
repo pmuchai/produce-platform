@@ -11,21 +11,16 @@ public class Product extends CatalogueItem {
 	private ProduceType produceType;
 	@ManyToOne
 	private ProductClassification variety;
-	@ManyToOne
-	private ProductClassification grade;
 	@ManyToOne(optional = false)
 	private UnitOfMeasure baseUnit;
 
-	void define(ProduceType produceType, ProductClassification variety,
-			ProductClassification grade, UnitOfMeasure baseUnit) {
+	void define(ProduceType produceType, ProductClassification variety, UnitOfMeasure baseUnit) {
 		this.produceType = produceType;
 		this.variety = variety;
-		this.grade = grade;
 		this.baseUnit = baseUnit;
 	}
 
 	public ProduceType getProduceType() { return produceType; }
 	public ProductClassification getVariety() { return variety; }
-	public ProductClassification getGrade() { return grade; }
 	public UnitOfMeasure getBaseUnit() { return baseUnit; }
 }

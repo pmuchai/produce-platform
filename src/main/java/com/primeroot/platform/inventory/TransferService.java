@@ -60,8 +60,7 @@ public class TransferService {
 			branches.findAllByOrderByCode().stream().filter(Branch::isActive)
 				.map(b -> new TransferDtos.Option(b.getId(), b.getName())).toList(),
 			products.findAllByOrderByCode().stream().filter(p -> p.isActive() && p.getBaseUnit().isActive()
-				&& p.getProduceType().isActive() && (p.getVariety() == null || p.getVariety().isActive())
-				&& (p.getGrade() == null || p.getGrade().isActive()))
+				&& p.getProduceType().isActive() && (p.getVariety() == null || p.getVariety().isActive()))
 				.map(p -> new TransferDtos.Option(p.getId(), p.getCode() + " / " + p.getName()
 					+ " (" + p.getBaseUnit().getCode() + ")")).toList());
 	}
@@ -100,7 +99,6 @@ public class TransferService {
 			var product = products.findById(line.productId())
 				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found"));
 			if (!product.isActive() || !product.getBaseUnit().isActive() || !product.getProduceType().isActive()
-					|| product.getGrade() != null && !product.getGrade().isActive()
 					|| product.getVariety() != null && !product.getVariety().isActive()) {
 				throw invalid("Transfer an active product and classification");
 			}

@@ -51,7 +51,7 @@ public interface StockBatchRepository extends JpaRepository<StockBatch, UUID> {
 
 	@Query("""
 		select b from StockBatch b where b.branch.id in :branches
-		and (lower(b.lotCode) like :search or lower(b.product.name) like :search)
+		and (lower(b.lotCode) like :search or lower(b.product.name) like :search or lower(b.gradeSnapshot) like :search)
 		order by b.receivedDate desc, b.createdAt desc, b.id
 		""")
 	Page<StockBatch> search(@Param("branches") List<UUID> branches, @Param("search") String search, Pageable pageable);
