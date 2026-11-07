@@ -23,8 +23,17 @@ class DashboardSummaryTests {
 		assertThat(summary.metrics().get(3).amount()).isEqualByComparingTo("5");
 		assertThat(summary.expenses()).isEqualTo("5");
 		assertThat(summary.netMargin()).isEqualTo("57.5%");
-		assertThatThrownBy(() -> DashboardSummary.build("EUR", "KES", List.of(), null, null, report(kes, usd), report()))
+		assertThatThrownBy(() -> DashboardSummary.build("NOT_A_CURRENCY", "KES", List.of(), null, null, report(kes, usd), report()))
 			.isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+	}
+
+	@Test
+	void selectedCurrencyRemainsAvailableWhenItHasNoActivityInEitherPeriod() {
+		var kes = total("KES", "100", "60", "12.34", "2", "25.66");
+		var summary = DashboardSummary.build("USD", "KES", List.of(), null, null, report(kes), report(kes));
+		assertThat(summary.currency()).isEqualTo("USD");
+		assertThat(summary.currencies()).contains("USD");
+		assertThat(summary.metrics().getLast().amount()).isEqualByComparingTo("0");
 	}
 
 	@Test

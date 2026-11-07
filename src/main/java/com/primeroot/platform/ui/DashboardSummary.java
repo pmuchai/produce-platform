@@ -51,7 +51,12 @@ public record DashboardSummary(String currency, List<String> currencies, List<Me
 			priorProfit.totals().stream().filter(t -> !"UNKNOWN".equals(t.currency())).forEach(t -> codes.add(t.currency()));
 		}
 		String code = requested == null ? businessCurrency : requested;
-		if (!codes.contains(code)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Select an available currency");
+		try {
+			Currency.getInstance(code);
+		} catch (IllegalArgumentException exception) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Select a valid currency");
+		}
+		codes.add(code);
 		var chart = charts.stream().filter(c -> c.currency().equals(code)).findFirst().orElse(null);
 		var financial = financial(profit, code);
 		var priorFinancial = financial(priorProfit, code);
