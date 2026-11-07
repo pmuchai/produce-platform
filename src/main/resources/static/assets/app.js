@@ -40,8 +40,12 @@
       headers: {Accept: 'application/json', [csrfHeader]: csrfToken, ...options.headers}
     });
     if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Your session has expired or access changed. Sign in again to continue.');
+      const sessionExpired = response.status === 401 || (response.status === 403
+        && (await fetch(base + 'api/auth/me', {headers: {Accept: 'application/json'}})).status === 401);
+      if (sessionExpired) {
+        window.location.replace(base + 'login');
+        // Keep callers from showing errors or retrying a mutation during sign-in navigation.
+        return new Promise(() => {});
       }
       if (response.headers.get('Content-Type')?.includes('json')) {
         const problem = await response.json();

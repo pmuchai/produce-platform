@@ -908,6 +908,20 @@ class AccessIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void logoutWithAnExpiredSessionAndStaleCsrfRedirectsToLogin() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var csrf = admin.body(admin.get("/api/auth/csrf"));
+			admin.cookies.getCookieStore().removeAll();
+			var response = admin.send("POST", URI.create("http://localhost:" + port + "/api/auth/logout"),
+				null, Map.entry(csrf.get("headerName").asText(), csrf.get("token").asText()));
+			assertThat(response.statusCode()).isEqualTo(302);
+			assertThat(URI.create(response.headers().firstValue("Location").orElseThrow()).getPath()).isEqualTo("/login");
+			assertThat(admin.get("/api/auth/me").statusCode()).isEqualTo(401);
+		}
+	}
+
+	@Test
 	void logoutRequiresCsrfEndsTheSessionAndReturnsThroughProviderLogoutToPrimeRootLogin() throws Exception {
 		try (var admin = browser()) {
 			admin.adminLogin();
