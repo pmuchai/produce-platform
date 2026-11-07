@@ -571,8 +571,35 @@ class AccessIntegrationTests extends OidcTestSupport {
 			assertThat(parameters.get("code_challenge")).hasSize(43);
 			assertThat(parameters.get("nonce")).isNotBlank();
 			assertThat(parameters.get("state")).isNotBlank();
+			assertThat(parameters).doesNotContainKey("prompt");
 			assertThat(location).doesNotContain(OidcTestProvider.CLIENT_SECRET, "code_verifier");
 			assertThat(response.headers().allValues("Set-Cookie").toString()).contains("HttpOnly", "SameSite=Lax");
+		}
+	}
+
+	@Test
+	void approvalSignInRequestsInteractiveLoginAndPreservesOidcProtections() throws Exception {
+		try (var applicant = browser()) {
+			var pending = applicant.login("approval-login-subject", ALL_PERMISSIONS, OidcTestProvider.Fault.NONE);
+			assertThat(pending.body()).contains("Awaiting administrator approval",
+				"action=\"/oauth2/authorization/keycloak\"", "name=\"prompt\" value=\"login\"",
+				"Check approval and sign in")
+				.doesNotContain("Your Keycloak identity has been verified", "Your administrator can approve");
+			var start = applicant.get("/oauth2/authorization/keycloak?prompt=login");
+			assertThat(start.statusCode()).isEqualTo(302);
+			var location = URI.create(start.headers().firstValue("Location").orElseThrow());
+			assertThat(location.toString()).startsWith(PROVIDER.issuer() + "/auth?");
+			assertThat(OidcTestProvider.parameters(location))
+				.containsEntry("prompt", "login").containsEntry("code_challenge_method", "S256")
+				.containsEntry("redirect_uri", "http://localhost:" + port + "/login/oauth2/code/keycloak")
+				.containsKeys("state", "nonce");
+			var authorization = applicant.send("GET", location, null, null);
+			var callback = applicant.get(authorization.headers().firstValue("Location").orElseThrow());
+			assertThat(callback.statusCode()).isEqualTo(302);
+			assertThat(callback.headers().firstValue("Location").orElseThrow()).endsWith("/access-pending");
+			assertThat(applicant.get("/api/auth/me").statusCode()).isEqualTo(401);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM staff_access_requests WHERE approved = FALSE", Integer.class))
+				.isEqualTo(1);
 		}
 	}
 

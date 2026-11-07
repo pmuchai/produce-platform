@@ -3,6 +3,7 @@ package com.primeroot.platform.security;
 import java.time.Duration;
 
 import com.primeroot.platform.access.StaffUserRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,6 +19,8 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.web.SecurityFilterChain;
@@ -42,8 +45,26 @@ public class SecurityConfiguration {
 			SecurityErrorWriter errors, ClientRegistrationRepository registrations,
 			OAuth2UserService<OidcUserRequest, OidcUser> staffOidcUserService,
 			@Value("${platform.security.maximum-authentication-age:PT5M}") Duration maximumAge) throws Exception {
-		var resolver = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
-		resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
+		var defaultResolver = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
+		defaultResolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
+		var signInResolver = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
+		signInResolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce()
+			.andThen(builder -> builder.additionalParameters(parameters -> parameters.put("prompt", "login"))));
+		var resolver = new OAuth2AuthorizationRequestResolver() {
+			private OAuth2AuthorizationRequestResolver delegate(HttpServletRequest request) {
+				return "login".equals(request.getParameter("prompt")) ? signInResolver : defaultResolver;
+			}
+
+			@Override
+			public OAuth2AuthorizationRequest resolve(HttpServletRequest request) {
+				return delegate(request).resolve(request);
+			}
+
+			@Override
+			public OAuth2AuthorizationRequest resolve(HttpServletRequest request, String registrationId) {
+				return delegate(request).resolve(request, registrationId);
+			}
+		};
 		var logout = new OidcClientInitiatedLogoutSuccessHandler(registrations);
 		logout.setPostLogoutRedirectUri("{baseUrl}/");
 		http
