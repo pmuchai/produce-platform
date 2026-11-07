@@ -44,6 +44,60 @@ class SalesIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void saleEntryShowsOnlyAssignedBranchStockAndOnlyEligibleSalespeopleLandThere() throws Exception {
+		try (var admin = browser(); var seller = browser(); var viewer = browser()) {
+			fixture(admin);
+			receive(admin, "4", "1", "ENTRY", null);
+			receive(admin, "2", "1", "ENTRY_EXPIRED", today.minusDays(1));
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", Map.of("requestId", UUID.randomUUID(),
+				"branchId", otherBranch, "receivedDate", today.toString(), "source", "Other farm", "currency", "KES",
+				"lines", List.of(receiptLine("91", "1", "OTHER_ENTRY", null)))).statusCode()).isEqualTo(201);
+			seller.login("sale-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			var home = seller.get("/home");
+			assertThat(home.statusCode()).isEqualTo(302);
+			assertThat(home.headers().firstValue("Location").orElseThrow()).endsWith("/ui/sales");
+			for (var path : List.of("/", "/login")) {
+				var redirect = seller.get(path);
+				assertThat(redirect.statusCode()).isEqualTo(302);
+				assertThat(seller.get(redirect.headers().firstValue("Location").orElseThrow())
+					.headers().firstValue("Location").orElseThrow()).endsWith("/ui/sales");
+			}
+			var entry = seller.body(seller.get("/api/sales/entry"));
+			assertThat(entry.get("branchId").asText()).isEqualTo(branch);
+			var option = entry.get("products").get(0);
+			assertThat(option.get("id").asText()).isEqualTo(product);
+			assertThat(option.get("baseUnitId").asText()).isEqualTo(unit("KG"));
+			assertThat(option.get("quantity").asText()).isEqualTo("6.000000");
+			assertThat(option.get("baseUnit").asText()).isEqualTo("KG");
+			var page = seller.get("/ui/sales");
+			assertThat(page.statusCode()).withFailMessage(page.body()).isEqualTo(200);
+			assertThat(page.body()).contains("Current sale", "On hand: 6 KG", "Full payment received")
+				.doesNotContain("Phase 6", "Stock is deducted now", "id=\"nav-dashboard\"");
+			var quote = seller.body(seller.mutate("POST", "/api/sales/quote",
+				Map.of("lines", List.of(saleLine("1.000001", "0.015"), saleLine("2.33", "12.345")))));
+			assertThat(quote.get("lines").get(0).get("total").asText()).isEqualTo("0.02");
+			assertThat(quote.get("lines").get(0).get("total").isString()).isTrue();
+			assertThat(quote.get("lines").get(1).get("total").asText()).isEqualTo("28.76");
+			assertThat(quote.get("total").asText()).isEqualTo("28.78");
+			assertBatch("ENTRY", "4", "4");
+			assertThat(admin.get("/home").statusCode()).isEqualTo(200);
+			viewer.login("sale-one", List.of("SALES_VIEW"), OidcTestProvider.Fault.NONE);
+			assertThat(viewer.get("/home").statusCode()).isEqualTo(200);
+
+			jdbc.update("UPDATE branches SET active = false WHERE id = ?", UUID.fromString(branch));
+			assertThat(seller.get("/home").statusCode()).isEqualTo(200);
+			assertThat(seller.get("/api/sales/entry").statusCode()).isEqualTo(409);
+			jdbc.update("INSERT INTO user_branches(user_id, branch_id) SELECT id, ? FROM staff_users WHERE subject = 'sale-one'",
+				UUID.fromString(otherBranch));
+			assertThat(seller.get("/home").statusCode()).isEqualTo(200);
+			assertThat(seller.get("/api/sales/entry").statusCode()).isEqualTo(409);
+			jdbc.update("UPDATE branches SET active = true WHERE id = ?", UUID.fromString(branch));
+			assertThat(seller.get("/home").statusCode()).isEqualTo(200);
+			assertThat(seller.get("/api/sales/entry").statusCode()).isEqualTo(409);
+		}
+	}
+
+	@Test
 	void fefoSplitsBatchesSnapshotsCostsAndRetriesWithoutAllowingBranchSelection() throws Exception {
 		try (var admin = browser(); var seller = browser()) {
 			fixture(admin);
@@ -499,6 +553,124 @@ class SalesIntegrationTests extends OidcTestSupport {
 		approve(admin, "seller.two", "sale-two", List.of(branch));
 		approve(admin, "other.one", "other-one", List.of(otherBranch));
 		approve(admin, "manager.one", "manager-one", List.of(branch));
+	}
+
+	@Test
+	void monthlyDashboardUsesCompleteCalendarMonthsCurrenciesAndPermissionScopedSalespersonTotals() throws Exception {
+		try (var admin = browser(); var seller = browser(); var colleague = browser(); var manager = browser()) {
+			fixture(admin);
+			receive(admin, "100", "80", "MONTHLY", null);
+			seller.login("sale-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			colleague.login("sale-two", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			var first = seller.body(seller.mutate("POST", "/api/sales", sale("1", "120"))).get("id").asText();
+			var second = seller.body(seller.mutate("POST", "/api/sales", sale("1", "150"))).get("id").asText();
+			var dollars = colleague.body(colleague.mutate("POST", "/api/sales", sale("1", "200"))).get("id").asText();
+			var previous = seller.body(seller.mutate("POST", "/api/sales", sale("1", "100"))).get("id").asText();
+			var excluded = seller.body(seller.mutate("POST", "/api/sales", sale("1", "800"))).get("id").asText();
+			for (var id : List.of(first, second, dollars)) {
+				jdbc.update("UPDATE sales SET sale_date = DATE '2024-02-29' WHERE id = ?", UUID.fromString(id));
+			}
+
+			jdbc.update("UPDATE sales SET branch_id = ? WHERE id = ?", UUID.fromString(otherBranch), UUID.fromString(second));
+			jdbc.update("UPDATE sales SET currency = 'USD' WHERE id = ?", UUID.fromString(dollars));
+			jdbc.update("UPDATE sales SET sale_date = DATE '2024-01-31' WHERE id = ?", UUID.fromString(previous));
+			jdbc.update("UPDATE sales SET sale_date = DATE '2024-03-01' WHERE id = ?", UUID.fromString(excluded));
+			var response = admin.get("/home?month=2024-02");
+			assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(200);
+			assertThat(response.body()).contains("2024-02-01 to 2024-02-29", "2024-01-01 to 2024-01-31",
+				"data-currency=\"KES\"", "value=\"USD\"", "data-value=\"270.00\"",
+				"+170.0%", "data-cost=\"160.00\"", "data-profit=\"110.00\"",
+				"data-day=\"1\" data-value=\"0\"", "data-day=\"29\" data-value=\"270.00\"");
+			assertThat(response.body()).doesNotContain("data-value=\"800.00\"");
+			assertThat(response.body()).contains("id=\"quantity-card\"", "data-quantity=\"2.000000\" data-unit=\"KG\"");
+			var usd = admin.get("/home?month=2024-02&currency=USD").body();
+			assertThat(usd).contains("data-currency=\"USD\"", "data-value=\"200.00\"").doesNotContain("data-value=\"270.00\"");
+			assertThat(usd).contains("data-quantity=\"1.000000\" data-unit=\"KG\"");
+			assertThat(admin.get("/home?month=2024-02&currency=NOT_A_CURRENCY").statusCode()).isEqualTo(400);
+			manager.login("manager-one", List.of("SALES_VIEW"), OidcTestProvider.Fault.NONE);
+			var scoped = manager.get("/home?month=2024-02").body();
+			assertThat(scoped).contains("data-value=\"120.00\"", "value=\"USD\"")
+				.doesNotContain("data-value=\"270.00\"", "data-cost=", "data-profit=", "monthly-costs", "data-chart=\"donut\"");
+			assertThat(seller.get("/home?month=2024-02").statusCode()).isEqualTo(302);
+			var own = seller.body(seller.get("/api/sales/reports/daily-sales?start=2024-02-01&end=2024-02-29"));
+			assertThat(own.get("ownSalesOnly").asBoolean()).isTrue();
+			assertThat(own.get("totals").get(0).get("revenue").asText()).isEqualTo("120.00");
+			assertThat(own.get("totals").get(0).get("cost").isNull()).isTrue();
+			assertThat(own.toString()).doesNotContain("USD", "seller.two");
+			var empty = admin.get("/home?month=2024-04").body();
+			assertThat(empty).contains("data-value=\"0\"", "No salesperson activity", "data-available=\"false\"");
+		}
+	}
+
+	@Test
+	void dashboardDoesNotTruncateSalespersonChartsAtTheReportPageSizeAndEscapesLabels() throws Exception {
+		try (var admin = browser(); var seller = browser()) {
+			fixture(admin);
+			receive(admin, "10", "80", "CHARTS", null);
+			seller.login("sale-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			var original = UUID.fromString(seller.body(seller.mutate("POST", "/api/sales", sale("1", "120"))).get("id").asText());
+			for (int index = 0; index < 101; index++) {
+				var user = UUID.randomUUID();
+				var sale = UUID.randomUUID();
+				var name = index == 100 ? "<script>chart-label</script>" : "Chart seller " + index;
+				jdbc.update("""
+					INSERT INTO staff_users(id, username, full_name, issuer, subject, active, all_branches, created_at)
+					SELECT ?, ?, ?, issuer, ?, true, false, created_at FROM staff_users WHERE subject = 'sale-one'
+					""", user, "chart.seller." + index, name, "chart-subject-" + index);
+				jdbc.update("""
+					INSERT INTO stock_operations(id, branch_id, actor_id, kind, request_hash, posted_at)
+					SELECT ?, branch_id, ?, kind, request_hash, posted_at FROM stock_operations WHERE id = ?
+					""", sale, user, original);
+				jdbc.update("""
+					INSERT INTO sales(id, branch_id, seller_id, seller_name, branch_name, currency, payment_method, total, cost, sale_date)
+					SELECT ?, branch_id, ?, ?, branch_name, currency, payment_method, total, cost, sale_date FROM sales WHERE id = ?
+					""", sale, user, name, original);
+			}
+			var month = java.time.YearMonth.from(today);
+			var report = admin.body(admin.get("/api/sales/reports/staff-performance?start=" + month.atDay(1) + "&end=" + today));
+			assertThat(report.get("rows").size()).isEqualTo(100);
+			assertThat(report.get("totalElements").asInt()).isEqualTo(102);
+			var dashboard = admin.get("/home").body();
+			assertThat(dashboard).contains("data-amount=\"12240.00\"", "chart.seller.100", "&lt;script&gt;chart-label&lt;/script&gt;")
+				.doesNotContain("<script>chart-label");
+			assertThat(dashboard.split("data-label=", -1).length - 1).isEqualTo(102);
+		}
+	}
+
+	@Test
+	void quantitySoldCardSeparatesBaseUnitsAndSubtractsFullRefundsWithinSellerScope() throws Exception {
+		try (var admin = browser(); var seller = browser(); var colleague = browser()) {
+			fixture(admin);
+			receive(admin, "10", "1", "QUANTITIES", null);
+			var type = jdbc.queryForObject("SELECT produce_type_id FROM products WHERE id = ?", UUID.class, UUID.fromString(product));
+			var counted = admin.body(admin.mutate("POST", "/api/catalogue/products", Map.of("code", "COUNTED",
+				"name", "Counted produce", "active", true, "produceTypeId", type, "baseUnitId", unit("PIECE")))).get("id").asText();
+			receiveLines(admin, List.of(Map.of("productId", counted, "unitId", unit("PIECE"), "quantity", "10",
+				"purchaseUnitCost", "1", "lotCode", "COUNTED")));
+			seller.login("sale-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			colleague.login("sale-two", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			var request = sale("2", "10");
+			request.put("lines", List.of(saleLine("2", "10"), Map.of("productId", counted, "unitId", unit("PIECE"),
+				"quantity", "3", "unitPrice", "10")));
+			var posted = seller.mutate("POST", "/api/sales", request);
+			assertThat(posted.statusCode()).withFailMessage(posted.body()).isEqualTo(201);
+			assertThat(colleague.mutate("POST", "/api/sales", sale("1", "10")).statusCode()).isEqualTo(201);
+			var dashboard = admin.get("/home").body();
+			var card = dashboard.substring(dashboard.indexOf("id=\"quantity-card\"")).split("</article>", 2)[0];
+			assertThat(card).contains("data-quantity=\"3.000000\" data-unit=\"KG\"",
+				"data-quantity=\"3.000000\" data-unit=\"PIECE\"");
+			var own = seller.body(seller.get("/api/sales/reports/product-sales")).get("rows");
+			assertThat(own.size()).isEqualTo(2);
+			for (var row : own) {
+				assertThat(row.get("quantity").asText()).isEqualTo(row.get("unit").asText().equals("KG") ? "2.000000" : "3.000000");
+			}
+			var id = seller.body(posted).get("id").asText();
+			assertThat(admin.mutate("POST", "/api/sales/" + id + "/void", voidRequest()).statusCode()).isEqualTo(200);
+			dashboard = admin.get("/home").body();
+			card = dashboard.substring(dashboard.indexOf("id=\"quantity-card\"")).split("</article>", 2)[0];
+			assertThat(card).contains("data-quantity=\"1.000000\" data-unit=\"KG\"",
+				"data-quantity=\"0.000000\" data-unit=\"PIECE\"");
+		}
 	}
 
 	private void approve(Browser admin, String username, String subject, List<String> branchIds) throws Exception {

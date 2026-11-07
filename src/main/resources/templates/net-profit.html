@@ -6,8 +6,10 @@
 <aside th:replace="~{layout :: sidebar}"></aside>
 <main id="main" class="workspace">
   <header th:replace="~{layout :: header('Net profit after expenses and losses', 'Recorded operating result within your authorized branch scope')}"></header>
-  <p class="hint">Net profit = net sales minus net COGS, paid operating expenses, net spoilage and finalized transfer losses. Taxes, depreciation, financing and unrecorded costs are excluded: this is not a statutory income statement. Currencies are never combined. Unknown loss costs suppress net profit, never become zero.</p>
-  <p class="hint">Sales use selected sale dates; refunds use actual posting dates. Expenses use paid dates and voids their correction dates, all in UTC. Transfer losses belong to the source branch on final receipt. In-transit stock is not an expense. Stock adjustments are not automatically classified as operating losses.</p>
+  <details class="accounting-note"><summary>Accounting basis</summary>
+    <p class="hint">Net sales minus COGS, paid operating expenses and recorded stock losses. Excludes taxes, depreciation, financing and unrecorded costs; not a statutory income statement. Unknown loss costs make net profit unavailable.</p>
+    <p class="hint">Sale and paid dates determine the reporting period. Refunds and corrections use their posting dates (UTC). Currencies remain separate.</p>
+  </details>
   <form method="get" th:action="@{/ui/reports/net-profit}" class="date-filter panel">
     <label>Branch<select name="branchId"><option value="">All accessible branches</option><option th:each="branch : ${report.branches}" th:value="${branch.id}" th:selected="${selectedBranch == branch.id}" th:text="${branch.name}"></option></select></label>
     <label>From (UTC)<input name="start" type="date" min="1970-01-01" th:max="${today}" th:value="${period.start}" required></label>

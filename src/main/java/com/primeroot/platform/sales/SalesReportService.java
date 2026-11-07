@@ -37,6 +37,28 @@ public class SalesReportService {
 	}
 
 	public SalesReports.Report report(SalesReports.Kind kind, UUID branchId, DashboardPeriod period, int page) {
+		return report(kind, branchId, period, page, false);
+	}
+
+	public SalesReports.Report chart(SalesReports.Kind kind, DashboardPeriod period) {
+		if (kind != SalesReports.Kind.DAILY && kind != SalesReports.Kind.STAFF) {
+			throw new IllegalArgumentException("Only daily sales and salesperson charts are supported");
+		}
+		return report(kind, null, period, 0, true);
+	}
+
+	public List<SalesReports.QuantityTotal> quantities(DashboardPeriod period) {
+		record Key(String currency, String unit) {}
+		var totals = new java.util.LinkedHashMap<Key, BigDecimal>();
+		for (var row : report(SalesReports.Kind.PRODUCTS, null, period, 0, true).rows()) {
+			totals.merge(new Key(row.currency(), row.unit()), row.quantity(), BigDecimal::add);
+		}
+		return totals.entrySet().stream().map(entry -> new SalesReports.QuantityTotal(entry.getKey().currency(),
+			entry.getKey().unit(), entry.getValue())).sorted(java.util.Comparator.comparing(SalesReports.QuantityTotal::currency)
+				.thenComparing(SalesReports.QuantityTotal::unit)).toList();
+	}
+
+	private SalesReports.Report report(SalesReports.Kind kind, UUID branchId, DashboardPeriod period, int page, boolean chart) {
 		var actor = access.currentUser();
 		var permissions = access.permissions();
 		boolean profit = permissions.contains(Permission.PROFIT_VIEW);
@@ -60,11 +82,11 @@ public class SalesReportService {
 			where += " AND e.seller_id = :seller ";
 			params.addValue("seller", actor.getId());
 		}
-		String query = kind.isStock() ? stockQuery(kind, params) : salesQuery(kind, where);
+		String query = kind.isStock() ? stockQuery(kind, params) : salesQuery(kind, where, chart);
 		var count = jdbc.queryForObject("SELECT COUNT(*) FROM (" + query + ") report_count", params, Long.class);
 		String ordering = " ORDER BY label, detail, currency, record_id";
 		if (kind.isStock()) ordering += ", sort_product_id, sort_branch_id";
-		var rows = jdbc.query(query + ordering + " LIMIT :limit OFFSET :offset", params,
+		var rows = jdbc.query(query + ordering + (chart ? "" : " LIMIT :limit OFFSET :offset"), params,
 			(rs, index) -> row(rs, profit));
 		var totals = kind.isStock() ? stockTotals(query, params, profit) : totals(where, params, profit);
 		var activity = kind.isStock() ? new long[] {0, 0} : jdbc.queryForObject(
@@ -79,7 +101,7 @@ public class SalesReportService {
 		return new SalesReports.Report(kind, rows, count, page, totals, previous, own, profit, options, activity[0], activity[1]);
 	}
 
-	private String salesQuery(SalesReports.Kind kind, String where) {
+	private String salesQuery(SalesReports.Kind kind, String where, boolean chart) {
 		String label;
 		String detail = "''";
 		String joins = "";
@@ -122,10 +144,15 @@ public class SalesReportService {
 				groups = "b.id, b.name, b.code, e.currency";
 			}
 			case STAFF -> {
-				joins = " JOIN staff_users u ON u.id = e.seller_id JOIN branches b ON b.id = e.branch_id ";
+				joins = " JOIN staff_users u ON u.id = e.seller_id ";
 				label = "u.full_name";
-				detail = "CONCAT(u.username, ' / ', b.name)";
-				groups = "u.id, u.full_name, u.username, b.id, b.name, e.currency";
+				detail = "u.username";
+				groups = "u.id, u.full_name, u.username, e.currency";
+				if (!chart) {
+					joins += " JOIN branches b ON b.id = e.branch_id ";
+					detail = "CONCAT(u.username, ' / ', b.name)";
+					groups += ", b.id, b.name";
+				}
 			}
 			case CUSTOMERS -> {
 				joins = " JOIN sales s ON s.id = e.sale_id ";

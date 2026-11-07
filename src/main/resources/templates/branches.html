@@ -19,7 +19,6 @@
   </tbody></table></div></section>
   <details th:if="${manageBranches}" id="branches-editor" class="panel" open th:hidden="${!createBranch}">
     <summary>Add / edit branch</summary>
-    <p class="hint">Use a unique branch code, name and optional address. Deactivating a branch immediately removes it from branch-scoped access and prevents new sales there.</p>
     <form data-resource="branches" th:attr="data-create-allowed=${createBranch}" class="editor">
       <input type="hidden" name="id">
       <input type="hidden" name="version">

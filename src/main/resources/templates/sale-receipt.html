@@ -25,13 +25,12 @@
     <p class="metric" th:text="'Paid: ' + ${receipt.currency} + ' ' + ${receipt.total}"></p>
     <p th:if="${canProfit}" th:text="'Original COGS: ' + ${receipt.cost} + ' / Original gross profit: ' + ${receipt.grossProfit} + ' ' + ${receipt.currency}"></p>
     <p th:if="${receipt.status == 'VOIDED'}" class="error" th:text="'Voided: ' + ${receipt.voidedAt} + ' / ' + ${receipt.voidReason} + (${receipt.refundReference != null} ? ' / Refund: ' + ${receipt.refundReference} : '')"></p>
-    <p class="hint">Sales receipt, not a tax invoice. Gross profit excludes operating expenses, taxes and separately reported stock losses. Voided originals are retained; reports recognize the refund on the void date.</p>
+    <p class="hint">Sales receipt, not a tax invoice.</p>
     <button type="button" id="print-receipt" class="secondary">Print receipt</button>
     <a th:if="${createSale}" th:href="@{/ui/sales}">New sale</a>
   </article>
   <section th:if="${voidSale and receipt.status == 'PAID'}" class="panel">
     <h2>Void entire sale</h2>
-    <p>Only use after all goods were physically returned and a full refund completed. This restores the exact original batches and costs. No money is sent by this application.</p>
     <form id="sale-void-form" class="editor" th:attr="data-sale-id=${receipt.id}">
       <label>Reason<textarea name="reason" maxlength="500" required></textarea></label>
       <label>Completed refund reference<input name="refundReference" maxlength="120" th:required="${receipt.paymentMethod.name() != 'CASH'}"></label>

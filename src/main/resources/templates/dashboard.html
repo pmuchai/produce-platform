@@ -1,73 +1,140 @@
 <!doctype html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{layout :: head('Dashboard')}"></head>
-<body>
+<body class="dashboard-page">
 <a class="skip" href="#main">Skip to content</a>
 <aside th:replace="~{layout :: sidebar}"></aside>
 <main id="main" class="workspace">
-  <header th:replace="~{layout :: header('Dashboard', 'Your business overview and operational workspace')}"></header>
-  <h2 th:text="'Welcome, ' + ${current.staff.fullName}">Welcome</h2>
-  <form th:replace="~{layout :: dates(@{/home})}"></form>
-  <section aria-label="Business trends" class="grid four">
-    <article class="card" th:if="${canProfit}" id="net-profit-card"><p class="eyebrow">NET PROFIT</p>
-      <p th:each="total : ${netProfit.totals}" th:text="${total.currency} + ' / ' + (${total.netProfit != null} ? ${total.netProfit} : 'Unavailable: unknown loss costs')"></p>
-      <p th:if="${netProfit.totals.isEmpty()}">No financial activity in the selected interval.</p>
-      <p class="hint">After recorded paid expenses and stock losses; before tax and unrecorded costs.</p>
-      <a th:href="@{/ui/reports/net-profit(start=${period.start},end=${period.end})}">View net profit</a></article>
-    <article class="card" th:if="${canSales}" id="sales-card"><p class="eyebrow">SALES TREND</p><h2>Net sales revenue</h2>
-      <p th:if="${sales.ownSalesOnly}" class="hint">Your own sales only</p>
-      <p th:each="trend : ${salesTrends}" th:text="${trend.currency} + ' ' + ${trend.revenue} + ' / change ' + ${trend.change} + ' vs previous equal-length interval'"></p>
-      <p th:if="${salesTrends.isEmpty()}">No sales in either interval.</p>
-      <a th:href="@{/ui/reports/daily-sales(start=${period.start},end=${period.end})}">View sales trend</a></article>
-    <article class="card pending" th:unless="${canSales}"><p class="eyebrow">SALES TREND</p><h2>No access</h2><p>Sales viewing or selling permission is required.</p></article>
-    <article class="card" th:if="${canStock}"><p class="eyebrow">STOCK LEVELS</p><h2 th:text="${inventory.lowStockCount} + ' low-stock alerts'"></h2>
-      <p th:text="${inventory.nearExpiryCount} + ' batches expired or due within seven days'"></p><a th:href="@{/ui/reports/stock(start=${period.start},end=${period.end})}">View stock report</a></article>
-    <article class="card pending" th:unless="${canStock}"><p class="eyebrow">STOCK LEVELS</p><h2>No access</h2><p>Stock viewing permission is required.</p></article>
-    <article class="card" th:if="${canSales}" id="branch-sales-card"><p class="eyebrow">BRANCH PERFORMANCE</p><h2 th:text="${sales.sellingBranches} + ' branches with sales activity'"></h2>
-      <p>Attributed sales and refunds within your scope and selected dates.</p><a th:href="@{/ui/reports/branch-sales(start=${period.start},end=${period.end})}">View branch sales</a></article>
-    <article class="card" th:if="${canSales}" id="staff-sales-card"><p class="eyebrow">STAFF PERFORMANCE</p><h2 th:text="${sales.sellingStaff} + ' salespeople with activity'"></h2>
-      <p>Based on actual attributed sales, not logins or administrative activity.</p><a th:href="@{/ui/reports/staff-performance(start=${period.start},end=${period.end})}">View staff performance</a></article>
-    <article class="card" th:if="${canSales and canProfit}" id="profit-card"><p class="eyebrow">GROSS PROFIT</p>
-      <p th:each="total : ${sales.totals}" th:text="${total.currency} + ' ' + ${total.grossProfit}"></p>
-      <p th:if="${sales.totals.isEmpty()}">No sales in the selected interval.</p>
-      <p class="hint">Net sales minus COGS; excludes expenses, tax and stock losses.</p><a th:href="@{/ui/reports/profit(start=${period.start},end=${period.end})}">View gross profit / COGS</a></article>
-  </section>
-  <section th:if="${canStock}" class="panel">
-    <h2>Stock by branch and product</h2>
-    <div th:replace="~{stock-summary :: balances}"></div>
-  </section>
-  <div class="section-heading"><h2>Operational overview</h2><span class="muted">Current snapshots, not historical balances</span></div>
-  <section aria-label="Summary dashboards" class="grid">
-    <article class="card" th:if="${canCatalogue}"><h2>Product catalogue</h2>
-      <p class="metric" th:text="${catalogue.products.size()} + ' products'"></p>
-      <p th:text="${catalogue.types.size()} + ' produce types / ' + ${catalogue.units.size()} + ' units'"></p>
-      <a th:href="@{/ui/catalogue}">Open catalogue</a>
+  <header class="dashboard-header">
+    <div><p class="eyebrow">BUSINESS OVERVIEW</p><h1>Dashboard</h1>
+      <p class="muted" th:text="${window.month == #strings.substring(today.toString(),0,7) ? 'Month to date' : 'Monthly overview'}"></p>
+      <p th:if="${canSales and sales.ownSalesOnly}" class="scope-note">Your own sales only</p>
+    </div>
+    <form method="get" th:action="@{/home}" id="dashboard-month-form" class="dashboard-filters"
+      th:attr="data-interval-mode=${window.comparison == 'previous equal-length interval'}" aria-describedby="period-description">
+      <div class="month-control">
+        <svg th:replace="~{layout :: icon('calendar')}"></svg>
+        <label class="sr-only" for="dashboard-month">Reporting month (UTC)</label>
+        <input type="month" th:attr="name=${window.comparison == 'previous equal-length interval' ? null : 'month'}" id="dashboard-month" required min="1970-01"
+          th:max="${#strings.substring(today.toString(),0,7)}" th:value="${window.month}">
+        <input th:if="${window.comparison == 'previous equal-length interval'}" type="hidden" name="start"
+          th:value="${period.start}" data-interval-date>
+        <input th:if="${window.comparison == 'previous equal-length interval'}" type="hidden" name="end"
+          th:value="${period.end}" data-interval-date>
+        <a th:if="${previousMonth != null}" th:href="@{/home(month=${previousMonth},currency=${overview.currency})}" aria-label="Previous month" title="Previous month"><svg th:replace="~{layout :: icon('left')}"></svg></a>
+        <span th:unless="${previousMonth != null}" aria-disabled="true"><svg th:replace="~{layout :: icon('left')}"></svg></span>
+        <a th:if="${nextMonth != null}" th:href="@{/home(month=${nextMonth},currency=${overview.currency})}" aria-label="Next month" title="Next month"><svg th:replace="~{layout :: icon('right')}"></svg></a>
+        <span th:unless="${nextMonth != null}" aria-disabled="true"><svg th:replace="~{layout :: icon('right')}"></svg></span>
+      </div>
+      <label class="sr-only" for="dashboard-currency">Reporting currency</label>
+      <select id="dashboard-currency" name="currency"><option th:each="code : ${overview.currencies}" th:value="${code}" th:selected="${code == overview.currency}" th:text="${code}"></option></select>
+      <button type="submit" class="secondary filter-apply">Apply</button>
+      <a th:href="@{/home}" data-current-month aria-label="Current month" title="Current month"><svg th:replace="~{layout :: icon('home')}"></svg></a>
+    </form>
+  </header>
+  <section class="dashboard-kpis" aria-label="Monthly financial summaries" th:if="${!overview.metrics.isEmpty()}">
+    <article th:each="metric : ${overview.metrics}" class="kpi-card" th:id="${metric.id}"
+      th:classappend="${metric.id == 'sales-card' ? 'kpi-primary' : ''}" th:attr="data-amount=${metric.amount}">
+      <div class="kpi-heading"><h2 th:text="${metric.label}"></h2><span class="icon-badge"><svg th:replace="~{layout :: icon(${metric.icon})}"></svg></span></div>
+      <p class="kpi-value" th:title="${metric.amount != null ? overview.currency + ' ' + metric.amount : 'Unavailable: unknown loss costs'}">
+        <span class="currency-code" th:if="${metric.amount != null}" th:text="${overview.currency}"></span>
+        <strong th:text="${metric.display}"></strong>
+      </p>
+      <p class="kpi-comparison" th:classappend="${metric.favorable ? 'favorable' : 'neutral'}" th:title="${metric.comparisonTitle}">
+        <svg th:if="${metric.amount != null}" th:replace="~{layout :: icon(${metric.increase ? 'up' : 'down'})}"></svg>
+        <span th:text="${metric.comparison}"></span><small>vs previous period</small>
+      </p>
     </article>
-    <article class="card" th:if="${canBranches}"><h2>Branches</h2>
-      <p class="metric" th:text="${branches.size()} + ' visible'"></p>
-      <p th:text="${branches.?[active].size()} + ' active branches within your access scope.'"></p>
-      <a th:href="@{/ui/branches}">View branches</a>
-    </article>
-    <article class="card" th:if="${canUsers}"><h2>Staff access</h2>
-      <p class="metric" th:text="${users.size()} + ' approved'"></p>
-      <p th:text="${users.?[active].size()} + ' active staff members across the business.'"></p>
-      <a th:href="@{/ui/users}">View staff</a>
-    </article>
-    <article class="card" th:if="${canAudit}"><h2>Audit activity</h2>
-      <p class="metric" th:text="${auditCount} + ' events'"></p>
-      <p th:text="(${auditDelta >= 0} ? '+' : '') + ${auditDelta} + ' vs previous equal-length interval (' + ${previousCount} + ')'"></p>
-      <p class="hint">System activity in the selected dates, not sales or staff performance.</p>
-      <a th:href="@{/ui/reports/audit(start=${period.start},end=${period.end})}">View activity report</a>
-    </article>
-    <article class="card" th:unless="${canCatalogue or canBranches or canUsers or canAudit or canStock or canSales}">
-      <h2>Your workspace is ready</h2><p>No summary dashboards are available for your current permissions and branch scope.</p>
+    <article th:if="${canSales}" class="kpi-card" id="quantity-card">
+      <div class="kpi-heading"><h2>Quantity sold</h2><span class="icon-badge"><svg th:replace="~{layout :: icon('box')}"></svg></span></div>
+      <div class="kpi-quantities"><p th:each="total : ${soldQuantities}" class="kpi-value" th:attr="data-quantity=${total.quantity},data-unit=${total.unit}">
+        <strong th:text="${total.display}"></strong><span class="currency-code" th:text="${total.unit}"></span>
+      </p><p th:if="${soldQuantities.isEmpty()}" class="kpi-value"><strong>0</strong></p></div>
+      <p class="kpi-comparison neutral" title="Net base quantities sold in the selected period and currency, after refunds. Different units are not combined.">After refunds / by unit</p>
     </article>
   </section>
-  <section class="panel"><h2>Your effective permissions</h2>
-    <ul class="tags"><li th:each="permission : ${current.permissions}" th:text="${permission}"></li>
-      <li th:if="${current.permissions.isEmpty()}">No business permissions assigned</li></ul>
-    <p class="hint">Job-function roles in Keycloak grant these capabilities. Data scope is enforced by the server.</p>
+  <section th:if="${canStock}" class="live-stock-panel" id="current-stock">
+    <div class="panel-heading"><div class="heading-with-badge"><h2>Current stock</h2><span class="live-badge">Live</span></div>
+      <a class="report-link" th:href="@{/ui/reports/stock}">View stock<svg th:replace="~{layout :: icon('right')}"></svg></a></div>
+    <div class="stock-strip">
+      <article th:each="stock : ${liveStock}" class="stock-item" th:attr="data-product=${stock.productId},data-quantity=${stock.quantity},data-unit=${stock.unit}">
+        <svg th:replace="~{layout :: icon('box')}"></svg><h3 th:text="${stock.product}"></h3>
+        <p><strong th:text="${stock.display}"></strong> <span th:text="${stock.unit}"></span></p>
+      </article>
+      <p th:if="${liveStock.isEmpty()}" class="muted">No stock recorded.</p>
+      <article class="stock-item stock-alert"><svg th:replace="~{layout :: icon('alert')}"></svg><h3>Low-stock alerts</h3><p><strong th:text="${inventory.lowStockCount}"></strong></p></article>
+    </div>
+    <p class="stock-caption"><span th:if="${stockProducts > 3}" th:text="'Showing 3 of ' + ${stockProducts} + ' products / '"></span>
+      <span th:text="${current.staff.allBranches ? 'Live balances / All branches' : 'Live balances / Assigned branches'}"></span></p>
   </section>
+  <section th:if="${canSales or canProfit}" id="monthly-insights" class="currency-insights"
+    th:attr="data-currency=${overview.currency}" aria-label="Monthly sales insights">
+    <div class="dashboard-chart-grid">
+      <section th:if="${canSales}" class="chart-panel trend-panel" data-chart="line">
+        <div class="panel-heading"><h2>Sales trend</h2><a class="report-link" th:href="@{/ui/reports/daily-sales(start=${period.start},end=${period.end})}">View report<svg th:replace="~{layout :: icon('right')}"></svg></a></div>
+        <div class="chart-legend"><span class="legend-current">This period</span><span class="legend-previous">Previous period</span></div>
+        <div class="chart-visual"></div><p th:if="${overview.chart == null}" class="chart-empty">No sales in either period.</p>
+        <details class="chart-details" th:if="${overview.chart != null}"><summary>Daily figures</summary><div class="table-scroll"><table>
+          <thead><tr><th>Date (UTC)</th><th>Net sales</th><th>Previous period</th></tr></thead><tbody>
+          <tr th:each="day : ${overview.chart.days}" th:attr="data-day=${day.day},data-value=${day.revenue},data-previous=${day.previousRevenue}">
+            <td th:text="${day.date != null ? day.date : 'Day ' + day.day + ' (previous only)'}"></td>
+            <td th:text="${day.revenue != null ? day.revenue : 'No corresponding day'}"></td><td th:text="${day.previousRevenue != null ? day.previousRevenue : 'No corresponding day'}"></td>
+          </tr></tbody></table></div></details>
+      </section>
+      <section th:if="${canSales and canProfit}" class="chart-panel breakdown-panel" data-chart="donut"
+        th:attr="data-revenue=${overview.chart != null ? overview.chart.revenue : 0},data-cost=${overview.chart != null ? overview.chart.cost : 0},data-profit=${overview.chart != null ? overview.chart.grossProfit : 0},data-available=${overview.chart != null and overview.chart.pieAvailable}">
+        <div class="panel-heading"><h2>Sales breakdown</h2><a class="report-link" th:href="@{/ui/reports/profit(start=${period.start},end=${period.end})}">View report<svg th:replace="~{layout :: icon('right')}"></svg></a></div>
+        <div class="chart-visual"></div>
+        <p th:unless="${overview.chart != null and overview.chart.pieAvailable}" class="chart-empty">No positive sales split.</p>
+        <dl class="breakdown-legend" th:if="${overview.chart != null}"><dt><span class="legend-dot cost-dot"></span>COGS</dt><dd th:text="${overview.chart.cost}"></dd>
+          <dt><span class="legend-dot profit-dot"></span>Gross profit</dt><dd th:text="${overview.chart.grossProfit}"></dd></dl>
+      </section>
+      <section th:if="${canSales}" class="chart-panel staff-panel" data-chart="bar" id="staff-sales-card">
+        <div class="panel-heading"><h2>Sales by salesperson</h2><a class="report-link" th:href="@{/ui/reports/staff-performance(start=${period.start},end=${period.end})}">View report<svg th:replace="~{layout :: icon('right')}"></svg></a></div>
+        <div class="chart-visual"></div>
+        <p th:if="${overview.chart == null or overview.chart.staff.isEmpty()}" class="chart-empty">No salesperson activity.</p>
+        <details class="chart-details" th:if="${overview.chart != null}"><summary>All salesperson figures</summary><p class="hint">Top 10 charted; remaining salespeople grouped as Other.</p>
+          <div class="table-scroll"><table><thead><tr><th>Salesperson</th><th>Net sales</th><th>Receipts</th><th>Refunds</th></tr></thead><tbody>
+          <tr th:each="seller : ${overview.chart.staff}" th:attr="data-label=${seller.label + ' / ' + seller.detail},data-value=${seller.revenue}">
+            <td th:text="${seller.label} + ' / ' + ${seller.detail}"></td><td th:text="${seller.revenue}"></td><td th:text="${seller.receipts}"></td><td th:text="${seller.voids}"></td>
+          </tr></tbody></table></div></details>
+      </section>
+      <section th:if="${canProfit}" class="chart-panel cost-panel" id="cost-snapshot">
+        <div class="panel-heading"><h2>Cost snapshot</h2><a class="report-link" th:href="@{/ui/reports/net-profit(start=${period.start},end=${period.end})}">View report<svg th:replace="~{layout :: icon('right')}"></svg></a></div>
+        <dl class="cost-snapshot">
+          <div><dt><span class="icon-badge"><svg th:replace="~{layout :: icon('wallet')}"></svg></span>Expenses</dt><dd th:text="${overview.currency} + ' ' + ${overview.expenses}"></dd></div>
+          <div><dt><span class="icon-badge"><svg th:replace="~{layout :: icon('box')}"></svg></span>Stock losses</dt><dd th:text="${overview.stockLosses == 'Unknown' ? 'Unknown' : overview.currency + ' ' + overview.stockLosses}"></dd></div>
+          <div class="margin-row"><dt><span class="icon-badge"><svg th:replace="~{layout :: icon('percent')}"></svg></span>Net margin</dt><dd th:text="${overview.netMargin}"></dd></div>
+        </dl>
+      </section>
+    </div>
+  </section>
+  <p class="panel" th:if="${overview.metrics.isEmpty() and !canStock}">No summary dashboards are available for your current permissions.</p>
+  <details class="dashboard-details"><summary>Workspace details</summary>
+    <p id="period-description" class="hint" th:text="'Selected: ' + ${period.start} + ' to ' + ${period.end} + '. Compared with ' +
+      ${window.previous.start} + ' to ' + ${window.previous.end} + ' (' + ${window.comparison} + ').'"></p>
+    <p class="hint">UTC dates. Refunds use their posting date. Currencies stay separate. Live stock is independent of the reporting month.</p>
+    <p class="hint" th:if="${canProfit}">Gross profit = net sales - COGS. Net profit also subtracts recorded expenses and stock losses, before tax and unrecorded costs. Unknown costs make net profit unavailable.</p>
+    <section th:if="${canProfit}" id="monthly-costs"><h2>Costs and profitability</h2>
+      <div class="table-scroll"><table><thead><tr><th>Period</th><th>Currency</th><th>Net sales</th><th>COGS</th><th>Gross profit</th><th>Paid expenses</th><th>Stock losses</th><th>Net profit</th></tr></thead><tbody>
+        <tr th:each="total : ${netProfit.totals}"><td>Selected</td><td th:text="${total.currency}"></td><td th:text="${total.revenue}"></td><td th:text="${total.costOfGoodsSold}"></td>
+          <td th:text="${total.grossProfit}"></td><td th:text="${total.expenses}"></td><td th:text="${total.stockLosses}"></td><td th:text="${total.netProfit != null ? total.netProfit : 'Unavailable: unknown loss costs'}"></td></tr>
+        <tr th:each="total : ${previousProfit.totals}"><td>Previous</td><td th:text="${total.currency}"></td><td th:text="${total.revenue}"></td><td th:text="${total.costOfGoodsSold}"></td>
+          <td th:text="${total.grossProfit}"></td><td th:text="${total.expenses}"></td><td th:text="${total.stockLosses}"></td><td th:text="${total.netProfit != null ? total.netProfit : 'Unavailable: unknown loss costs'}"></td></tr>
+      </tbody></table></div>
+    </section>
+    <section th:if="${canStock}"><h2>Stock by branch and product</h2><div th:replace="~{stock-summary :: balances}"></div>
+      <p th:text="${inventory.nearExpiryCount} + ' batches expired or due within seven days'"></p></section>
+    <section class="grid" aria-label="Summary dashboards">
+      <article class="card" th:if="${canCatalogue}"><h2>Product catalogue</h2><p th:text="${catalogue.products.size()} + ' products'"></p><a th:href="@{/ui/catalogue}">Open catalogue</a></article>
+      <article class="card" th:if="${canBranches}"><h2>Branches</h2><p th:text="${branches.size()} + ' visible'"></p><p th:text="${branches.?[active].size()} + ' active branches'"></p><a th:href="@{/ui/branches}">View branches</a></article>
+      <article class="card" th:if="${canUsers}"><h2>Staff access</h2><p th:text="${users.size()} + ' approved'"></p><a th:href="@{/ui/users}">View staff</a></article>
+      <article class="card" th:if="${canAudit}"><h2>Audit activity</h2><p th:text="${auditCount} + ' events'"></p><p th:text="(${auditDelta >= 0} ? '+' : '') + ${auditDelta} + ' vs ' + ${window.comparison} + ' (' + ${previousCount} + ')'"></p><a th:href="@{/ui/reports/audit(start=${period.start},end=${period.end})}">View activity report</a></article>
+    </section>
+    <p class="hint">Current snapshots, not historical balances.</p>
+    <section><h2>Your effective permissions</h2><ul class="tags"><li th:each="permission : ${current.permissions}" th:text="${permission}"></li><li th:if="${current.permissions.isEmpty()}">No business permissions assigned</li></ul></section>
+  </details>
 </main>
+<script defer th:src="@{/assets/dashboard.js}"></script>
 </body>
 </html>

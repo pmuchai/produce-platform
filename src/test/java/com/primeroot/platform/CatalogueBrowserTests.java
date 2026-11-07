@@ -110,6 +110,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 				verifySalesWorkspace(chrome, session, branchId, productId);
 				verifyTransferWorkspace(chrome, session, branchId, productId);
 				verifyExpenseWorkspace(chrome, branchId);
+				verifyDashboardWorkspace(chrome, session, branchId);
 				verifyWhatsAppWorkspace(chrome);
 				chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
 					"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
@@ -120,6 +121,35 @@ class CatalogueBrowserTests extends OidcTestSupport {
 				assertThat(chrome.evaluate("document.documentElement.scrollWidth <= window.innerWidth").asBoolean()).isTrue();
 			}
 		}
+	}
+
+	private void verifyDashboardWorkspace(Chrome chrome, Browser admin, String branchId) throws Exception {
+		var today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+		var posted = admin.mutate("POST", "/api/expenses", Map.of("requestId", java.util.UUID.randomUUID(),
+			"branchId", branchId, "paidDate", today.toString(), "category", "TRANSPORT", "description", "Dashboard transport",
+			"amount", "25", "paymentMethod", "CASH"));
+		assertThat(posted.statusCode()).withFailMessage(posted.body()).isEqualTo(201);
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 1536, "height", 1040, "deviceScaleFactor", 1, "mobile", false));
+		navigateSidebar(chrome, "dashboard", "/home");
+		chrome.await("document.querySelectorAll('.dashboard-kpis > article').length === 6 && document.querySelectorAll('.chart-visual > svg').length === 3");
+		chrome.await("[...document.querySelectorAll('.sidebar summary svg, .kpi-heading svg')].every(icon => icon.getBBox().width > 0)");
+		assertThat(chrome.evaluate("document.querySelector('#expenses-card h2').textContent").asText()).isEqualTo("Total expenses");
+		assertThat(chrome.evaluate("document.querySelector('#current-stock').innerText").asText()).contains("Live", "Edited UI Product");
+		assertThat(chrome.evaluate("document.querySelector('.dashboard-details').open").asBoolean()).isFalse();
+		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('.dashboard-kpis')).gridTemplateColumns.split(' ').length").asInt()).isEqualTo(6);
+		assertThat(chrome.evaluate("document.querySelector('#quantity-card').innerText").asText()).contains("Quantity sold", "KG");
+		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('.dashboard-chart-grid')).gridTemplateColumns.split(' ').length").asInt()).isEqualTo(4);
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		var screenshot = System.getProperty("ui.screenshot");
+		if (screenshot != null) {
+			var capture = chrome.command("Page.captureScreenshot", Map.of("format", "png", "captureBeyondViewport", true));
+			Files.write(Path.of(screenshot), java.util.Base64.getDecoder().decode(capture.get("data").asText()));
+		}
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		chrome.command("Emulation.clearDeviceMetricsOverride", Map.of());
 	}
 
 	private void verifyWhatsAppWorkspace(Chrome chrome) throws Exception {
@@ -227,14 +257,47 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		chrome.ready();
 		assertThat(chrome.evaluate("document.querySelector('#branches-editor').hidden").asBoolean()).isTrue();
 		loginChrome(chrome, "ui-sales-subject", java.util.List.of("SALE_CREATE"), "UI Salesperson");
+		assertThat(chrome.evaluate("location.pathname").asText()).isEqualTo("/ui/sales");
 		navigateSidebar(chrome, "sales", "/ui/sales");
 		assertThat(chrome.evaluate("""
 			[...document.querySelectorAll('.sidebar .nav-group')].map(group => group.id).join(',')
-			""").asText()).isEqualTo("nav-whatsapp,nav-dashboard,nav-sales,nav-reports");
+			""").asText()).isEqualTo("nav-whatsapp,nav-sales,nav-reports");
 		assertThat(chrome.evaluate("document.querySelector('#sale-customer').value").asText()).isEqualTo("Walk-ins");
 		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.saleDate.value").asText())
 			.isEqualTo(java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString());
 		assertThat(chrome.evaluate("document.querySelector('#sale-form [name=\"branchId\"]') === null").asBoolean()).isTrue();
+		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('.sale-entry-layout')).gridTemplateColumns.split(' ').length").asInt()).isEqualTo(2);
+		assertThat(chrome.evaluate("document.querySelector('.product-art').getBoundingClientRect().width").asDouble()).isGreaterThan(90);
+		assertThat(chrome.evaluate("document.querySelector('.page-header').innerText").asText()).doesNotContain("automatically", "Phase");
+		chrome.evaluate("""
+			(() => { const search = document.querySelector('#product-search');
+			search.value = 'no-product-matches-this'; search.dispatchEvent(new Event('input')); return true; })()
+			""");
+		assertThat(chrome.evaluate("document.querySelector('#product-empty').hidden").asBoolean()).isFalse();
+		assertThat(chrome.evaluate("document.querySelector('[data-add-product]').getBoundingClientRect().width").asDouble()).isZero();
+		chrome.evaluate("""
+			(() => { const card = document.querySelector('[data-add-product][data-id="%s"]');
+			const search = document.querySelector('#product-search'); search.value = card.dataset.name;
+			search.dispatchEvent(new Event('input'));
+			document.querySelector(`[data-product-filter="${card.dataset.type}"]`).click();
+			card.click(); card.click(); return true; })()
+			""".formatted(productId));
+		assertThat(chrome.evaluate("document.querySelectorAll('#sale-lines .sale-line').length").asInt()).isEqualTo(1);
+		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.quantity.value").asText()).isEqualTo("2");
+		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.unitId.value").asText())
+			.isEqualTo("10000000-0000-0000-0000-000000000001");
+		chrome.evaluate("""
+			document.querySelector('#sale-form').elements.quantity.value = '2.500001';
+			document.querySelector('[data-quantity-change="1"]').click(); true
+			""");
+		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.quantity.value").asText()).isEqualTo("3.500001");
+		chrome.evaluate("document.querySelector('[data-quantity-change=\"-1\"]').click(); true");
+		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.quantity.value").asText()).isEqualTo("2.500001");
+		chrome.evaluate("""
+			document.querySelector('#add-sale-line').click();
+			document.querySelectorAll('[data-remove-sale-line]')[1].click(); true
+			""");
+		assertThat(chrome.evaluate("document.querySelectorAll('#sale-lines .sale-line').length").asInt()).isEqualTo(1);
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('#sale-form');
 			f.elements.productId.value = '%s'; f.elements.unitId.value = '10000000-0000-0000-0000-000000000001';
@@ -245,9 +308,18 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		assertThat(chrome.evaluate("document.querySelector('#sale-total').textContent").asText()).contains("Insufficient");
 		chrome.evaluate("""
 			document.querySelector('#sale-form').elements.quantity.value = '1.25';
-			document.querySelector('#quote-sale').click(); true
+			document.querySelector('#sale-form').elements.quantity.dispatchEvent(new Event('input', {bubbles: true})); true
 			""");
 		chrome.await("document.querySelector('#sale-total').textContent.includes('Total: KES 150.00')");
+		assertThat(chrome.evaluate("document.querySelector('.line-total').textContent").asText()).isEqualTo("KES 150.00");
+		assertThat(chrome.evaluate("document.querySelector('#sale-count').textContent").asText()).isEqualTo("1 item");
+		var saleScreenshot = System.getProperty("ui.sale-screenshot");
+		if (saleScreenshot != null) {
+			var capture = chrome.command("Page.captureScreenshot", Map.of("format", "png", "captureBeyondViewport", true));
+			Files.write(Path.of(saleScreenshot), java.util.Base64.getDecoder().decode(capture.get("data").asText()));
+		}
+		chrome.evaluate("document.querySelector('#sale-form').requestSubmit(); true");
+		assertThat(chrome.evaluate("location.pathname").asText()).isEqualTo("/ui/sales");
 		chrome.evaluate("""
 			const form = document.querySelector('#sale-form'); form.elements.paymentConfirmed.checked = true;
 			form.requestSubmit(); true
@@ -260,11 +332,14 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			(() => { const f = document.querySelector('#sale-form'); f.elements.customer.value = '__new__';
 			f.elements.customer.dispatchEvent(new Event('change')); f.elements.customerName.value = 'UI Grocery Customer';
 			f.elements.productId.value = '%s'; f.elements.unitId.value = '10000000-0000-0000-0000-000000000001';
-			f.elements.quantity.value = '.75'; f.elements.unitPrice.value = '120'; f.elements.paymentMethod.value = 'MPESA';
-			f.elements.paymentMethod.dispatchEvent(new Event('change')); f.elements.paymentReference.value = 'UI-MPESA-001';
+			f.elements.quantity.value = '.75'; f.elements.unitPrice.value = '120';
+			document.querySelector('[data-payment="MPESA"]').click(); f.elements.paymentReference.value = 'UI-MPESA-001';
 			document.querySelector('#quote-sale').click(); return true; })()
 			""".formatted(productId));
 		chrome.await("document.querySelector('#sale-total').textContent.includes('Total: KES 90.00')");
+		assertThat(chrome.evaluate("document.querySelector('#payment-reference-label').hidden").asBoolean()).isFalse();
+		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.paymentReference.required").asBoolean()).isTrue();
+		assertThat(chrome.evaluate("document.querySelector('[data-payment=\"MPESA\"]').getAttribute('aria-pressed')").asText()).isEqualTo("true");
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('#sale-form'); f.elements.paymentConfirmed.checked = true;
 			f.requestSubmit(); return true; })()
@@ -286,6 +361,12 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
 		navigateSidebar(chrome, "sales", "/ui/sales");
 		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		chrome.evaluate("document.querySelector('[data-add-product][data-id=\"%s\"]').click(); true".formatted(productId));
+		assertThat(chrome.evaluate("""
+			(() => { const field = document.querySelector('#sale-form').elements.unitPrice;
+			return document.activeElement === field && field.getBoundingClientRect().top >= 0
+			  && field.getBoundingClientRect().bottom <= innerHeight; })()
+			""").asBoolean()).isTrue();
 		navigateSidebar(chrome, "reports", "/ui/reports/staff-performance");
 		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
 		loginChrome(chrome, OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS, "Browser Administrator");
@@ -305,8 +386,23 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		navigateSidebar(chrome, "reports", "/ui/reports/profit");
 		assertThat(chrome.evaluate("document.querySelector('main').innerText").asText()).contains("90.00", "60.09", "29.91");
 		navigateSidebar(chrome, "dashboard", "/home");
-		assertThat(chrome.evaluate("document.querySelector('#sales-card').innerText").asText()).contains("90.00");
-		assertThat(chrome.evaluate("document.querySelector('#staff-sales-card').innerText").asText()).contains("1 salespeople");
+		assertThat(chrome.evaluate("document.querySelector('#sales-card').dataset.amount").asText()).isEqualTo("90.00");
+		assertThat(chrome.evaluate("document.querySelector('#staff-sales-card').innerText").asText()).contains("Sales by salesperson");
+		chrome.await("document.querySelectorAll('.chart-visual > svg').length === 3");
+		assertThat(chrome.evaluate("document.querySelector('#dashboard-month').value").asText())
+			.isEqualTo(java.time.YearMonth.now(java.time.ZoneOffset.UTC).toString());
+		assertThat(chrome.evaluate("document.querySelector('[data-chart=\"donut\"] .chart-visual svg').textContent").asText())
+			.contains("Net sales", "COGS", "gross profit");
+		chrome.evaluate("document.querySelector('#dashboard-month').value = '2024-02'; document.querySelector('#dashboard-month').dispatchEvent(new Event('change')); true");
+		chrome.await("new URLSearchParams(location.search).get('month') === '2024-02' && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('#monthly-insights').innerText").asText())
+			.contains("No sales in either period");
+		chrome.evaluate("document.querySelector('[data-current-month]').click(); true");
+		chrome.await("location.search === '' && document.querySelectorAll('.chart-visual > svg').length === 3 && document.readyState === 'complete'");
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		chrome.command("Emulation.clearDeviceMetricsOverride", Map.of());
 		var saleDate = java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(1).toString();
 		var recoveredStock = admin.mutate("POST", "/api/inventory/receipts", Map.of("requestId", java.util.UUID.randomUUID(),
 			"branchId", branchId, "receivedDate", saleDate, "source", "Downtime receipt", "currency", "KES",
@@ -322,12 +418,13 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			document.querySelector('#quote-sale').click(); return true; })()
 			""".formatted(productId));
 		chrome.await("document.querySelector('#sale-total').textContent.includes('Total: KES 60.00')");
-		chrome.evaluate("""
+		var changedDate = chrome.evaluate("""
 			(() => { const f = document.querySelector('#sale-form'); f.elements.paymentConfirmed.checked = true;
-			f.elements.saleDate.value = '%s'; f.elements.saleDate.dispatchEvent(new Event('input')); return true; })()
+			f.elements.saleDate.value = '%s'; f.elements.saleDate.dispatchEvent(new Event('input'));
+			return {confirmed: f.elements.paymentConfirmed.checked, total: document.querySelector('#sale-total').textContent}; })()
 			""".formatted(saleDate));
-		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.paymentConfirmed.checked").asBoolean()).isFalse();
-		assertThat(chrome.evaluate("document.querySelector('#sale-total').textContent").asText()).contains("Calculate the total");
+		assertThat(changedDate.get("confirmed").asBoolean()).isFalse();
+		assertThat(changedDate.get("total").asText()).contains("Calculate the total");
 		chrome.evaluate("document.querySelector('#quote-sale').click(); true");
 		chrome.await("document.querySelector('#sale-total').textContent.includes('Total: KES 60.00')");
 		chrome.evaluate("""
@@ -544,7 +641,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		chrome.command("Network.clearBrowserCookies", Map.of());
 		PROVIDER.identity(subject, permissions, OidcTestProvider.Fault.NONE);
 		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/home"));
-		chrome.await("location.pathname === '/home' && document.readyState === 'complete' && "
+		chrome.await("['/home', '/ui/sales'].includes(location.pathname) && document.readyState === 'complete' && "
 			+ "document.querySelector('.sidebar-foot strong')?.textContent === " + json.writeValueAsString(name));
 	}
 
@@ -658,6 +755,24 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			"active", true, "produceTypeId", otherType, "kind", "GRADE"));
 		navigateSidebar(chrome, "stock", "/ui/stock-entries");
 		chrome.await("document.querySelector('#stock-receipt') !== null && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('.stock-entry-layout')).gridTemplateColumns.split(' ').length").asInt()).isEqualTo(2);
+		chrome.evaluate("""
+			(() => { const form = document.querySelector('#stock-receipt');
+			form.elements.source.value = 'UI shared delivery';
+			const card = document.querySelector('[data-add-product][data-id="%s"]');
+			card.click(); card.click(); return true; })()
+			""".formatted(productId));
+		assertThat(chrome.evaluate("document.querySelectorAll('#receipt-lines .receipt-line').length").asInt()).isEqualTo(2);
+		assertThat(chrome.evaluate("""
+			[...document.querySelectorAll('#receipt-lines [name="gradeId"]')].every(field => field.value === '')
+			&& [...document.querySelectorAll('#receipt-lines [name="lotCode"]')].every(field => field.value === 'UI shared delivery')
+			""").asBoolean()).isTrue();
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
+		assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
+		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
+			"width", 1440, "height", 1000, "deviceScaleFactor", 1, "mobile", false));
+		chrome.evaluate("document.querySelectorAll('[data-remove-line]')[1].click(); true");
 		assertThat(chrome.evaluate("document.querySelector('h1').textContent").asText()).isEqualTo("Receive stock");
 		assertThat(chrome.evaluate("document.querySelector('#stock-history') === null").asBoolean()).isTrue();
 		chrome.evaluate("""
@@ -697,13 +812,19 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			measured.querySelector('[name="purchaseUnitCost"]').value = '2000';
 			measured.querySelector('[name="measuredBaseQuantity"]').value = '3.123456';
 			measured.querySelector('[name="lotCode"]').value = 'UI_DELIVERY_LOT';
-			f.requestSubmit(); return true; })()
+			return true; })()
 			""".formatted(branchId, productId, small, productId, medium));
+		var stockScreenshot = System.getProperty("ui.stock-screenshot");
+		if (stockScreenshot != null) {
+			var capture = chrome.command("Page.captureScreenshot", Map.of("format", "png", "captureBeyondViewport", true));
+			Files.write(Path.of(stockScreenshot), java.util.Base64.getDecoder().decode(capture.get("data").asText()));
+		}
+		chrome.evaluate("document.querySelector('#stock-receipt').requestSubmit(); true");
 		chrome.await("document.querySelector('#stock-receipt .form-message').classList.contains('error')");
 		assertThat(chrome.evaluate("document.querySelector('#stock-receipt .form-message').textContent").asText())
 			.contains("Secure request identifiers are unavailable");
 		chrome.evaluate("delete globalThis.crypto.getRandomValues; document.querySelector('#stock-receipt').requestSubmit(); true");
-		chrome.await("document.querySelector('#stock-batches').innerText.includes('UI_DELIVERY_LOT')");
+		chrome.await("document.querySelector('#stock-batches')?.innerText.includes('UI_DELIVERY_LOT') === true && document.readyState === 'complete'");
 		chrome.ready();
 		assertThat(chrome.evaluate("document.querySelector('#stock-balances').innerText").asText()).contains("5.123456 KG");
 		assertThat(chrome.evaluate("document.querySelector('#stock-batches').innerText").asText())
@@ -735,7 +856,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			const f = document.querySelector('form[data-stock="reversals"]');
 			f.elements.reason.value = 'UI reversal'; f.requestSubmit(); return true; })()
 			""");
-		chrome.await("document.querySelector('#stock-balances').innerText.includes('5.000000 KG')");
+		chrome.await("document.querySelector('#stock-balances')?.innerText.includes('5.000000 KG') === true");
 		chrome.ready();
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('form[data-stock="thresholds"]');

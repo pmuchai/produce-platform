@@ -41,11 +41,13 @@ public class WorkspaceController {
 	private final ExpenseService expenses;
 	private final NetProfitService netProfit;
 	private final ObjectProvider<WhatsAppLinkService> whatsapp;
+	private final String businessCurrency;
 
 	public WorkspaceController(StaffService staff, BranchService branches, CatalogueService catalogue,
 			AuditService audit, InventoryService inventory, SalesService sales, SalesReportService salesReports,
 			TransferService transfers, ExpenseService expenses, NetProfitService netProfit,
-			ObjectProvider<WhatsAppLinkService> whatsapp) {
+			ObjectProvider<WhatsAppLinkService> whatsapp,
+			@org.springframework.beans.factory.annotation.Value("${platform.inventory.currency}") String businessCurrency) {
 		this.staff = staff;
 		this.branches = branches;
 		this.catalogue = catalogue;
@@ -57,6 +59,7 @@ public class WorkspaceController {
 		this.expenses = expenses;
 		this.netProfit = netProfit;
 		this.whatsapp = whatsapp;
+		this.businessCurrency = java.util.Currency.getInstance(businessCurrency.toUpperCase(java.util.Locale.ROOT)).getCurrencyCode();
 	}
 
 	private void workspace(Model model, String page) {
@@ -88,8 +91,7 @@ public class WorkspaceController {
 		model.addAttribute("spoilStock", permissions.contains(Permission.STOCK_SPOILAGE));
 		model.addAttribute("canSales", permissions.contains(Permission.SALE_CREATE) || permissions.contains(Permission.SALES_VIEW));
 		model.addAttribute("canWhatsApp", whatsapp.getIfAvailable() != null);
-		model.addAttribute("createSale", permissions.contains(Permission.SALE_CREATE)
-			&& !global && current.staff().branchIds().size() == 1);
+		model.addAttribute("createSale", staff.canCreateSale());
 		model.addAttribute("voidSale", permissions.contains(Permission.SALE_VOID));
 		model.addAttribute("canProfit", permissions.contains(Permission.PROFIT_VIEW));
 		model.addAttribute("canExpenses", permissions.contains(Permission.EXPENSE_VIEW));
@@ -113,29 +115,48 @@ public class WorkspaceController {
 
 	@GetMapping("/home")
 	public String home(Model model,
+			@RequestParam(required = false) String month,
+			@RequestParam(required = false) String currency,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end) {
 		workspace(model, "dashboard");
-		var period = DashboardPeriod.resolve(start, end);
+		if (Boolean.TRUE.equals(model.getAttribute("createSale"))) return "redirect:/ui/sales";
+		var window = DashboardWindow.resolve(month, start, end);
+		var period = window.period();
+		model.addAttribute("window", window);
 		model.addAttribute("period", period);
+		var selectedMonth = java.time.YearMonth.parse(window.month());
+		model.addAttribute("previousMonth", selectedMonth.isAfter(java.time.YearMonth.of(1970, 1)) ? selectedMonth.minusMonths(1) : null);
+		model.addAttribute("nextMonth", selectedMonth.isBefore(java.time.YearMonth.now(ZoneOffset.UTC)) ? selectedMonth.plusMonths(1) : null);
+		com.primeroot.platform.finance.NetProfitReport currentProfit = null;
+		com.primeroot.platform.finance.NetProfitReport priorProfit = null;
+		com.primeroot.platform.sales.SalesReports.Report currentSales = null;
+		com.primeroot.platform.sales.SalesReports.Report priorSales = null;
+		var charts = java.util.List.<DashboardCharts.CurrencyChart>of();
 		if (Boolean.TRUE.equals(model.getAttribute("canProfit"))) {
-			model.addAttribute("netProfit", netProfit.report(null, period, 0));
+			currentProfit = netProfit.report(null, period, 0);
+			priorProfit = netProfit.report(null, window.previous(), 0);
+			model.addAttribute("netProfit", currentProfit);
+			model.addAttribute("previousProfit", priorProfit);
 		}
 		if (Boolean.TRUE.equals(model.getAttribute("canSales"))) {
-			var report = salesReports.report(SalesReports.Kind.SALES, null, period, 0);
-			model.addAttribute("sales", report);
-			Map<String, java.math.BigDecimal> previous = new LinkedHashMap<>();
-			report.previous().forEach(total -> previous.put(total.currency(), total.revenue()));
-			Map<String, java.math.BigDecimal> current = new LinkedHashMap<>();
-			report.totals().forEach(total -> current.put(total.currency(), total.revenue()));
-			previous.keySet().forEach(code -> current.putIfAbsent(code, java.math.BigDecimal.ZERO));
-			model.addAttribute("salesTrends", current.entrySet().stream().map(entry ->
-				new SalesTrend(entry.getKey(), entry.getValue(),
-					entry.getValue().subtract(previous.getOrDefault(entry.getKey(), java.math.BigDecimal.ZERO)))).toList());
+			currentSales = salesReports.chart(SalesReports.Kind.DAILY, period);
+			priorSales = salesReports.chart(SalesReports.Kind.DAILY, window.previous());
+			model.addAttribute("sales", currentSales);
+			charts = DashboardCharts.build(window, currentSales, priorSales, salesReports.chart(SalesReports.Kind.STAFF, period));
+		}
+		var overview = DashboardSummary.build(currency, businessCurrency, charts, currentSales, priorSales, currentProfit, priorProfit);
+		model.addAttribute("overview", overview);
+		if (currentSales != null) {
+			model.addAttribute("soldQuantities", DashboardSummary.quantities(salesReports.quantities(period), overview.currency()));
 		}
 
 		if (Boolean.TRUE.equals(model.getAttribute("canStock"))) {
-			model.addAttribute("inventory", inventory.snapshot(null, period, 0));
+			var snapshot = inventory.snapshot(null, period, window.previous(), 0);
+			model.addAttribute("inventory", snapshot);
+			var stock = DashboardSummary.stock(snapshot.balances());
+			model.addAttribute("liveStock", stock.stream().limit(3).toList());
+			model.addAttribute("stockProducts", stock.size());
 		}
 		if (Boolean.TRUE.equals(model.getAttribute("canBranches"))) {
 			model.addAttribute("branches", branches.list());
@@ -148,15 +169,12 @@ public class WorkspaceController {
 		}
 		if (Boolean.TRUE.equals(model.getAttribute("canAudit"))) {
 			long count = audit.count(period.from(), period.until());
-			long previous = audit.count(period.previousFrom(), period.from());
+			long previous = audit.count(window.previous().from(), window.previous().until());
 			model.addAttribute("auditCount", count);
 			model.addAttribute("auditDelta", count - previous);
 			model.addAttribute("previousCount", previous);
 		}
 		return "dashboard";
-	}
-
-	private record SalesTrend(String currency, java.math.BigDecimal revenue, java.math.BigDecimal change) {
 	}
 
 	@GetMapping("/ui/expenses")

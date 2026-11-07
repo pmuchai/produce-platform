@@ -64,6 +64,10 @@ abstract class OidcTestSupport {
 			}
 			assertThat(callback.headers().firstValue("Location").orElseThrow()).endsWith("/home");
 			var home = get(callback.headers().firstValue("Location").orElseThrow());
+			if (home.statusCode() == 302) {
+				assertThat(home.headers().firstValue("Location").orElseThrow()).endsWith("/ui/sales");
+				home = get(home.headers().firstValue("Location").orElseThrow());
+			}
 			assertThat(home.statusCode()).withFailMessage(home.body()).isEqualTo(200);
 			assertThat(home.headers().firstValue("Content-Type").orElseThrow()).startsWith("text/html");
 			return get("/api/auth/me");

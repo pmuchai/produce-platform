@@ -391,7 +391,7 @@ class InventoryIntegrationTests extends OidcTestSupport {
 				"/ui/reports/stock?start=" + today + "&amp;end=" + today + "&amp;branchId=" + branch + "&amp;page=0&amp;batchPage=0");
 			var movements = admin.get("/ui/reports/stock-movements" + filters);
 			assertThat(movements.statusCode()).withFailMessage(movements.body()).isEqualTo(200);
-			assertThat(movements.body()).contains("Stock movements report", "101 matching movements",
+			assertThat(movements.body()).contains("Stock movements report", "101 movements",
 				"/ui/reports/stock-movements?start=" + today + "&amp;end=" + today + "&amp;branchId=" + branch + "&amp;page=1")
 				.doesNotContain("data-stock=", "data-reverse", "data-threshold", "id=\"stock-batches\"");
 			var next = admin.get("/ui/reports/stock-movements" + filters + "&page=1");
@@ -520,7 +520,31 @@ class InventoryIntegrationTests extends OidcTestSupport {
 			assertThat(admin.get("/api/inventory?start=" + today).statusCode()).isEqualTo(400);
 			assertThat(admin.get("/api/inventory?page=-1").statusCode()).isEqualTo(400);
 			assertThat(admin.get("/ui/stock?start=" + today + "&end=" + today + "&branchId=" + branch).body()).contains("23.000000 KG");
+			var historicalDashboard = admin.get("/home?month=2024-02").body();
+			assertThat(historicalDashboard).contains("id=\"current-stock\"", "data-quantity=\"23.000000\"", "data-unit=\"KG\"");
 			assertLedgerMatchesBatches();
+		}
+	}
+
+	@Test
+	void dashboardStockTotalsUseTheDisplayedPreviousMonth() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var product = product(admin);
+			var jan1 = postReceipt(admin, branch, product, "10");
+			movePosting(jan1.get("id").asText(), LocalDate.of(2024, 1, 1), 0);
+			var jan3 = postReceipt(admin, branch, product, "20");
+			movePosting(jan3.get("id").asText(), LocalDate.of(2024, 1, 3), 0);
+			var jan1Spoilage = admin.body(admin.mutate("POST", "/api/inventory/spoilage",
+				change(branch, jan1.get("movements").get(0).get("batchId").asText(), "1", "Jan 1 damage")));
+			movePosting(jan1Spoilage.get("id").asText(), LocalDate.of(2024, 1, 1), 60);
+			var jan3Spoilage = admin.body(admin.mutate("POST", "/api/inventory/spoilage",
+				change(branch, jan3.get("movements").get(0).get("batchId").asText(), "2", "Jan 3 damage")));
+			movePosting(jan3Spoilage.get("id").asText(), LocalDate.of(2024, 1, 3), 60);
+
+			var dashboard = admin.get("/home?month=2024-02").body();
+			assertThat(dashboard).contains("0 / 30.000000 KG", "0 / 3.000000 KG");
 		}
 	}
 
@@ -549,7 +573,7 @@ class InventoryIntegrationTests extends OidcTestSupport {
 				"minimumQuantity", "0", "expectedVersion", 0)).statusCode()).isEqualTo(412);
 			assertThat(admin.mutate("POST", "/api/inventory/spoilage", change(branch, batch, "12", "Expired")).statusCode()).isEqualTo(200);
 			assertThat(admin.body(admin.get("/api/inventory")).get("nearExpiryCount").asInt()).isZero();
-			assertThat(admin.get("/home").body()).contains("1 low-stock alerts", "0 batches expired");
+			assertThat(admin.get("/home").body()).contains("Low-stock alerts", "<strong>1</strong>", "0 batches expired");
 		}
 	}
 

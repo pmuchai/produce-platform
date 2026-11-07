@@ -1,46 +1,62 @@
 <!doctype html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{layout :: head('New sale')}"></head>
-<body>
+<body class="entry-page">
 <a class="skip" href="#main">Skip to content</a>
 <aside th:replace="~{layout :: sidebar}"></aside>
 <main id="main" class="workspace">
-  <header th:replace="~{layout :: header('New sale', 'Fully paid sales, automatically allocated to your assigned branch')}"></header>
+  <header class="page-header">
+    <h1>New sale</h1>
+    <div class="entry-context"><span class="branch-chip"><svg th:replace="~{layout :: icon('box')}"></svg><span th:text="${entry.branch}"></span></span>
+      <label class="compact-date"><span class="sr-only">Sale date (UTC)</span><input name="saleDate" form="sale-form" aria-label="Sale date (UTC)" type="date" min="1970-01-01" th:max="${today}" th:value="${today}" required></label>
+    </div>
+  </header>
   <div th:replace="~{layout :: notice}"></div>
-  <section class="panel">
-    <h2 th:text="${entry.branch}">Selling branch</h2>
-    <p class="hint">Your branch is assigned by your administrator. Sale date defaults to today (UTC); choose a past date to record a sale completed during downtime. Stock is deducted now, earliest-expiry first, from batches eligible on that sale date.</p>
-    <form id="sale-form" class="editor">
-      <div class="grid">
-        <label>Sale date (UTC)<input name="saleDate" type="date" min="1970-01-01" th:max="${today}" th:value="${today}" required></label>
+  <div class="sale-entry-layout">
+    <section th:replace="~{product-picker :: picker(${entry.products}, 'sale')}"></section>
+    <form id="sale-form" class="checkout-panel">
+      <div class="panel-heading"><h2><svg th:replace="~{layout :: icon('cart')}"></svg>Current sale</h2><span id="sale-count" class="badge">0 items</span></div>
+      <div class="sale-customer">
         <label>Customer<select name="customer" id="sale-customer">
           <option value="Walk-ins" selected>Walk-ins</option>
           <option th:each="customer : ${entry.customers}" th:value="${customer}" th:text="${customer}"></option>
           <option value="__new__">Add customer...</option>
         </select></label>
         <label id="new-customer-label" hidden>New customer name<input name="customerName" maxlength="120" disabled></label>
-        <label>Payment method<select name="paymentMethod"><option value="CASH">Cash</option><option value="MPESA">M-Pesa (manually recorded)</option><option value="BANK">Bank (manually recorded)</option></select></label>
-        <label>Payment reference<input name="paymentReference" maxlength="120"><span class="hint">Required for M-Pesa and bank payments.</span></label>
       </div>
-      <p><strong th:text="${entry.currency}"></strong> prices are per selected selling unit. All prices are final; this is not a VAT/eTIMS tax invoice.</p>
       <div id="sale-lines">
         <div class="sale-line receipt-line">
-          <label>Product<select name="productId" required><option value="">Choose product</option><option th:each="product : ${entry.products}" th:value="${product.id}" th:text="${product.label}"></option></select></label>
-          <label>Selling unit<select name="unitId" required><option value="">Choose unit</option><option th:each="unit : ${entry.units}" th:value="${unit.id}" th:text="${unit.label}"></option></select></label>
-          <label>Quantity<input name="quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
-          <label>Unit selling price<input name="unitPrice" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
-          <label>Actual measured base quantity<input name="measuredBaseQuantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001"><span class="hint">Packaging only; leave blank to use a configured fixed conversion.</span></label>
-          <button type="button" class="secondary" data-remove-sale-line>Remove line</button>
+          <label class="cart-product"><span class="sr-only">Product</span><select name="productId" required><option value="">Choose product</option><option th:each="product : ${entry.products}" th:value="${product.id}" th:attr="data-unit=${product.baseUnitId}" th:text="${product.label}"></option></select></label>
+          <button type="button" class="icon-button cart-remove" data-remove-sale-line aria-label="Remove product"><svg th:replace="~{layout :: icon('trash')}"></svg></button>
+          <label>Unit<select name="unitId" required><option value="">Unit</option><option th:each="unit : ${entry.units}" th:value="${unit.id}" th:text="${unit.label}"></option></select></label>
+          <label>Quantity<span class="quantity-control">
+            <button type="button" class="icon-button" data-quantity-change="-1" aria-label="Decrease quantity"><svg th:replace="~{layout :: icon('minus')}"></svg></button>
+            <input name="quantity" aria-label="Quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required value="1">
+            <button type="button" class="icon-button" data-quantity-change="1" aria-label="Increase quantity"><svg th:replace="~{layout :: icon('plus')}"></svg></button>
+          </span></label>
+          <label><span th:text="'Price / unit (' + ${entry.currency} + ')'"></span><input name="unitPrice" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required placeholder="0.00"></label>
+          <output class="line-total" aria-label="Line total">--</output>
+          <details class="line-options"><summary>Measured packaging</summary>
+            <label>Measured total (product base unit)<input name="measuredBaseQuantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001"></label>
+          </details>
         </div>
       </div>
-      <button type="button" class="secondary" id="add-sale-line">Add product line</button>
-      <label>Notes<textarea name="notes" maxlength="500" rows="2"></textarea></label>
-      <div class="form-actions"><button type="button" id="quote-sale" class="secondary">Calculate total</button><output id="sale-total" aria-live="polite">Calculate the total before receiving payment.</output></div>
-      <label class="check"><input name="paymentConfirmed" type="checkbox" required> I have received the full payment. This application records payments; it does not collect money.</label>
-      <p class="hint">The server computes final totals using exact decimals and currency rounding. Posting deducts stock immediately. After an uncertain response, retry unchanged; do not clear the form or submit a new sale.</p>
-      <div class="form-actions"><button type="submit">Post paid sale</button><span class="form-message" role="status" aria-live="polite"></span></div>
+      <button type="button" class="text-button" id="add-sale-line"><svg th:replace="~{layout :: icon('plus')}"></svg>Add item</button>
+      <details class="line-options"><summary>Notes</summary><label><span class="sr-only">Notes</span><textarea name="notes" maxlength="500" rows="2"></textarea></label></details>
+      <div class="checkout-total"><output id="sale-total" aria-live="polite">Calculate the total</output><button type="button" id="quote-sale" class="secondary">Review total</button></div>
+      <div class="payment-options" role="group" aria-label="Payment method">
+        <button type="button" class="selected" data-payment="CASH" aria-pressed="true"><svg th:replace="~{layout :: icon('cash')}"></svg>Cash</button>
+        <button type="button" data-payment="MPESA" aria-pressed="false"><svg th:replace="~{layout :: icon('phone')}"></svg>M-Pesa</button>
+        <button type="button" data-payment="BANK" aria-pressed="false"><svg th:replace="~{layout :: icon('bank')}"></svg>Bank</button>
+      </div>
+      <select name="paymentMethod" class="sr-only" aria-label="Payment method" tabindex="-1"><option value="CASH">Cash</option><option value="MPESA">M-Pesa</option><option value="BANK">Bank</option></select>
+      <label id="payment-reference-label" hidden>Payment reference<input name="paymentReference" maxlength="120"></label>
+      <label class="check payment-confirmation"><input name="paymentConfirmed" type="checkbox" required>Full payment received</label>
+      <button type="submit" class="record-sale"><svg th:replace="~{layout :: icon('check')}"></svg>Record sale</button>
+      <span class="form-message" role="status" aria-live="polite"></span>
     </form>
-  </section>
+  </div>
+  <noscript><p class="notice error">JavaScript is required to record sales.</p></noscript>
 </main>
 </body>
 </html>

@@ -241,7 +241,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 	void navigationParentsFollowEffectivePermissionsAndStaffScope() throws Exception {
 		record NavigationCase(boolean global, List<String> permissions, List<String> parents) { }
 		var cases = List.of(
-			new NavigationCase(false, List.of("SALE_CREATE"), List.of("dashboard", "sales", "reports")),
+			new NavigationCase(false, List.of("SALE_CREATE"), List.of("sales", "reports")),
 			new NavigationCase(false, List.of("USER_VIEW"), List.of("dashboard")),
 			new NavigationCase(true, List.of("USER_VIEW"), List.of("dashboard", "users")),
 			new NavigationCase(true, List.of("CATALOGUE_VIEW"), List.of("dashboard", "configurations")),
@@ -263,6 +263,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 					assertThat(session.login(scenario.global() ? OidcTestProvider.ADMIN_SUBJECT : "navigation-sales-subject",
 						scenario.permissions(), OidcTestProvider.Fault.NONE).statusCode()).isEqualTo(200);
 					var page = session.get("/home");
+					if (page.statusCode() == 302) page = session.get("/ui/sales");
 					assertThat(page.statusCode()).isEqualTo(200);
 					var parents = java.util.regex.Pattern.compile("id=\"nav-([a-z]+)\"").matcher(page.body())
 						.results().map(match -> match.group(1)).toList();
@@ -398,9 +399,11 @@ class AccessIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
-	void dashboardDefaultsToWeeklyAndFiltersOnlyIntervalMetricsWithExclusiveEndBoundaries() throws Exception {
+	void dashboardDefaultsToCurrentMonthAndPreservesExplicitIntervalFiltersWithExclusiveEndBoundaries() throws Exception {
 		try (var admin = browser()) {
 			admin.adminLogin();
+			assertThat(admin.get("/assets/dashboard.js").statusCode()).isEqualTo(200);
+			assertThat(admin.get("/assets/icons.svg").statusCode()).isEqualTo(200);
 			var today = LocalDate.now(ZoneOffset.UTC);
 			var start = today.minusDays(3);
 			var dayBefore = start.minusDays(1);
@@ -412,11 +415,14 @@ class AccessIntegrationTests extends OidcTestSupport {
 			var selected = admin.get("/home?start=" + start + "&end=" + today);
 			assertThat(selected.statusCode()).isEqualTo(200);
 			assertThat(selected.body()).contains("2 events", "+1 vs previous equal-length interval (1)",
-				"not historical balances", "Net sales revenue", "STAFF PERFORMANCE");
+				"not historical balances", "Net sales", "Sales by salesperson", "data-interval-mode=\"true\"",
+				"name=\"start\"", "name=\"end\"", "value=\"" + start + "\" data-interval-date",
+				"value=\"" + today + "\" data-interval-date")
+				.doesNotContain("name=\"month\"", "name=\"\"");
 			var report = admin.get("/ui/reports?start=" + start + "&end=" + today);
 			assertThat(report.body()).contains("at-start", "at-end").doesNotContain(">previous<", ">excluded<");
-			assertThat(admin.get("/home").body()).contains("value=\"" +
-				today.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)) + "\"");
+			assertThat(admin.get("/home").body()).contains("value=\"" + java.time.YearMonth.from(today) + "\"",
+				"Selected: " + today.withDayOfMonth(1) + " to " + today, "same elapsed days of previous month");
 			for (var query : List.of("?start=" + today, "?start=" + today + "&end=" + dayBefore,
 				"?start=" + start + "&end=" + today.plusDays(1), "?start=2020-01-01&end=" + today,
 				"?start=not-a-date&end=" + today)) {
@@ -468,7 +474,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 				"<script>alert('name')</script>", OidcTestProvider.ADMIN_SUBJECT);
 			var response = admin.get("/home");
 			assertThat(response.statusCode()).isEqualTo(200);
-			assertThat(response.body()).contains("Welcome, &lt;script&gt;", "1 visible", "1 active branches",
+			assertThat(response.body()).contains("&lt;script&gt;alert", "1 visible", "1 active branches",
 				"Staff access", "1 approved", "Audit activity", "Business-wide",
 				"action=\"/api/auth/logout\"", "name=\"_csrf\"")
 				.doesNotContain("<script>", "No summary dashboards");
@@ -485,10 +491,10 @@ class AccessIntegrationTests extends OidcTestSupport {
 			assertThat(admin.mutate("POST", "/api/users", Map.of(
 				"username", "operator", "fullName", "Branch Operator", "subject", "operator-subject",
 				"allBranches", false, "branchIds", Set.of(north))).statusCode()).isEqualTo(201);
-			assertThat(operator.login("operator-subject", ALL_PERMISSIONS, OidcTestProvider.Fault.NONE)
+			assertThat(operator.login("operator-subject", ALL_PERMISSIONS.stream().filter(permission -> !permission.equals("SALE_CREATE")).toList(), OidcTestProvider.Fault.NONE)
 				.statusCode()).isEqualTo(200);
 			var home = operator.get("/home").body();
-			assertThat(home).contains("Welcome, Branch Operator", "Assigned active branches", "1 visible")
+			assertThat(home).contains("Branch Operator", "Assigned active branches", "1 visible")
 				.doesNotContain("Staff access", "<h2>Audit activity</h2>", "href=\"/ui/reports/audit\"",
 					"/api/users", "/api/audit-events", "2 visible");
 		}
@@ -530,7 +536,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 				assertThat(page.statusCode()).as(path).isEqualTo(302);
 				assertThat(URI.create(page.headers().firstValue("Location").orElseThrow()).getPath()).isEqualTo("/home");
 			}
-			assertThat(browser.get("/home").body()).contains("Prime Root", "PRIME ROOT", "| Prime Root")
+			assertThat(browser.get("/home").body()).contains("Prime Root", "BUSINESS OVERVIEW", "| Prime Root")
 				.doesNotContain("Produce Platform", "PRODUCE PLATFORM");
 		}
 	}

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <symbol id="home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9"/></symbol>
+  <symbol id="sales" viewBox="0 0 24 24"><path d="M4 21V11h4v10M10 21V7h4v14M16 21V3h4v18"/></symbol>
+  <symbol id="box" viewBox="0 0 24 24"><path d="m3 7 9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4M12 11v10M7 5l9 4"/></symbol>
+  <symbol id="transfer" viewBox="0 0 24 24"><path d="M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4"/></symbol>
+  <symbol id="wallet" viewBox="0 0 24 24"><path d="M20 7H5a2 2 0 0 1 0-4h13v4M3 5v14a2 2 0 0 0 2 2h15V7M20 11h-6v6h6"/><circle cx="16" cy="14" r=".5"/></symbol>
+  <symbol id="report" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8l-5-5Zm0 0v5h5M8 12h8M8 16h8"/></symbol>
+  <symbol id="users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6M17 14a5 5 0 0 1 4 4v3"/></symbol>
+  <symbol id="settings" viewBox="0 0 24 24"><path d="m10 3-.6 3-2 .9-2.6-1.1-2 3.4 2 1.9v2L3 15l2 3.4 2.6-1.1 2 .9.6 2.8h4l.6-2.8 2-.9 2.6 1.1 2-3.4-1.8-1.9v-2L21 9.2l-2-3.4-2.6 1.1-2-.9L14 3h-4Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="message" viewBox="0 0 24 24"><path d="M21 11a9 9 0 0 1-9 9H3l2-5a9 9 0 1 1 16-4Z"/><path d="M8 9h8M8 13h5"/></symbol>
+  <symbol id="logout" viewBox="0 0 24 24"><path d="M10 3H4v18h6M9 12h12m-4-4 4 4-4 4"/></symbol>
+  <symbol id="trend" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-10M15 5h6v6"/></symbol>
+  <symbol id="coins" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v5c0 4 14 4 14 0V5M5 10v5c0 4 14 4 14 0v-5M5 15v4c0 4 14 4 14 0v-4"/></symbol>
+  <symbol id="leaf" viewBox="0 0 24 24"><path d="M20 3c-9 0-15 3-15 9a6 6 0 0 0 6 6c6 0 9-6 9-15ZM3 21 15 9"/></symbol>
+  <symbol id="receipt" viewBox="0 0 24 24"><path d="M5 3h14v18l-3-2-4 2-4-2-3 2V3ZM8 7h8M8 11h8M8 15h4"/></symbol>
+  <symbol id="calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M7 14h3M14 14h3M7 17h3"/></symbol>
+  <symbol id="left" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
+  <symbol id="right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="up" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="M12 4v16m-6-6 6 6 6-6"/></symbol>
+  <symbol id="alert" viewBox="0 0 24 24"><path d="m12 3 10 18H2L12 3ZM12 9v5M12 17v1"/></symbol>
+  <symbol id="percent" viewBox="0 0 24 24"><path d="m5 19 14-14"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="m15 15 6 6"/></symbol>
+  <symbol id="cart" viewBox="0 0 24 24"><path d="M2 3h3l3 13h11l3-10H6M8 16l-1 3h13"/><circle cx="9" cy="21" r="1"/><circle cx="18" cy="21" r="1"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></symbol>
+  <symbol id="cash" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M5 9v6M19 9v6"/></symbol>
+  <symbol id="phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 5h4M11 19h2"/></symbol>
+  <symbol id="bank" viewBox="0 0 24 24"><path d="m2 8 10-6 10 6H2ZM4 11v7M9 11v7M15 11v7M20 11v7M2 21h20"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+  <symbol id="produce" viewBox="0 0 96 80">
+    <ellipse cx="48" cy="70" rx="30" ry="5" fill="#dde6da"/>
+    <path d="M47 63C18 62 14 34 19 20c22 0 35 18 28 43Z" fill="#81ad6c"/>
+    <path d="M48 65c-3-35 19-47 31-47 5 27-6 48-31 47Z" fill="#54884d"/>
+    <path d="m28 32 21 34 20-34" fill="none" stroke="#d1e6b9" stroke-width="3"/>
+  </symbol>
+  <symbol id="produce-onion" viewBox="0 0 96 80">
+    <ellipse cx="48" cy="71" rx="27" ry="4" fill="#eadde6"/>
+    <path d="M47 16c-1-6 2-12 5-15M48 16l-8-11" fill="none" stroke="#6c9759" stroke-width="4"/>
+    <path d="M48 15c6 13 30 14 29 33-1 17-15 23-29 23S20 65 19 48C18 29 42 28 48 15Z" fill="#a56384"/>
+    <path d="M47 22c-21 15-24 33-8 44M49 22c20 15 24 33 8 44M48 24v43" fill="none" stroke="#d5a3be" stroke-width="2"/>
+  </symbol>
+  <symbol id="produce-tomato" viewBox="0 0 96 80">
+    <ellipse cx="48" cy="70" rx="30" ry="5" fill="#eeddd7"/>
+    <path d="M48 25c-37-14-46 33-16 43 8 3 25 3 33-2 27-17 12-51-17-41Z" fill="#d6644c"/>
+    <path d="m47 29-19-9 15 1 5-16 5 16 15-1-17 12Z" fill="#638f50"/>
+    <path d="M29 37c-6 4-7 10-5 16" fill="none" stroke="#f1b09a" stroke-width="4" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="produce-potato" viewBox="0 0 96 80">
+    <ellipse cx="48" cy="70" rx="32" ry="5" fill="#e6dfcf"/>
+    <path d="M19 52c-8-17 9-37 30-35 21 1 30 13 28 31-1 16-17 22-35 22-15 0-20-5-23-18Z" fill="#cbaa78"/>
+    <path d="m32 34 2 1m22-9 2 1M63 52l2 1M35 57l2 1M49 43l2 1" stroke="#967450" stroke-width="3" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="produce-cabbage" viewBox="0 0 96 80">
+    <ellipse cx="48" cy="70" rx="30" ry="5" fill="#dce5d1"/>
+    <circle cx="48" cy="42" r="30" fill="#89ae70"/>
+    <path d="M45 13c-21 12-21 35 3 58M50 13c21 12 21 35-2 58M19 33c28 0 24 14 29 38M77 33C49 33 53 47 48 71M27 19c16 12 21 21 21 52" fill="none" stroke="#c2d4a5" stroke-width="2"/>
+  </symbol>
+  <symbol id="produce-carrot" viewBox="0 0 96 80">
+    <ellipse cx="48" cy="70" rx="28" ry="4" fill="#e9dfcf"/>
+    <path d="M60 28c-2-13 5-21 9-25M65 28c6-15 14-14 19-16M61 26c-11-9-12-16-10-22" fill="none" stroke="#628f51" stroke-width="5" stroke-linecap="round"/>
+    <path d="M54 25c8-6 23 2 19 11L21 70Z" fill="#db914c"/>
+    <path d="m53 35 8 5m-19 6 6 4" stroke="#b7783e" stroke-width="2"/>
+  </symbol>
+</svg>
