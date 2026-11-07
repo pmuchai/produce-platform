@@ -25,6 +25,11 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
 @Configuration
 public class SecurityConfiguration {
 	@Bean
+	ConditionalAuthorizedClientService authorizedClientService() {
+		return new ConditionalAuthorizedClientService();
+	}
+
+	@Bean
 	OAuth2UserService<OidcUserRequest, OidcUser> staffOidcUserService(OidcStaffService staff) {
 		var delegate = new OidcUserService();
 		delegate.setRetrieveUserInfo(request -> false);
