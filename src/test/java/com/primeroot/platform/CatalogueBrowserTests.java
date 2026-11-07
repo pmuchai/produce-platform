@@ -41,9 +41,68 @@ class CatalogueBrowserTests extends OidcTestSupport {
 	@Autowired
 	private StaffService staff;
 	@Autowired private WhatsAppWorker whatsappWorker;
+	@Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
 	@MockitoBean private WhatsAppTransport whatsappTransport;
 
 	Path profile = Path.of("target", "browser-profiles", java.util.UUID.randomUUID().toString()).toAbsolutePath();
+
+	@Test
+	void revokedAndMissingSessionsSignInAgainWithoutPostingOrShowingSessionAlerts() throws Exception {
+		staff.bootstrap("admin", "Browser Administrator", OidcTestProvider.ADMIN_SUBJECT);
+		PROVIDER.identity(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS, OidcTestProvider.Fault.NONE);
+		try (var chrome = new Chrome()) {
+			verifyPublicLogin(chrome);
+			for (boolean revoked : new boolean[] {true, false}) {
+				chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/catalogue"));
+				chrome.await("document.title.startsWith('Catalogue') && document.readyState === 'complete'");
+				var oldToken = chrome.evaluate("document.querySelector('meta[name=\"csrf-token\"]').content").asText();
+				if (revoked) {
+					jdbc.update("UPDATE staff_users SET security_version = security_version + 1 WHERE subject = ?",
+						OidcTestProvider.ADMIN_SUBJECT);
+				}
+				else {
+					chrome.command("Network.clearBrowserCookies", Map.of());
+				}
+				chrome.evaluate("""
+					(() => { const f = document.querySelector('form[data-resource="types"]');
+					f.closest('details').open = true; f.elements.code.value = 'EXPIRED_SESSION';
+					f.elements.name.value = 'Must not be posted'; f.requestSubmit(); return true; })()
+					""");
+				chrome.await("location.pathname === '/home' && document.readyState === 'complete'");
+				assertThat(chrome.evaluate("document.body.innerText").asText())
+					.doesNotContain("Your session has expired", "Request failed (403)");
+				assertThat(chrome.evaluate("document.querySelector('meta[name=\"csrf-token\"]').content").asText())
+					.isNotEqualTo(oldToken);
+				try (var admin = browser()) {
+					admin.adminLogin();
+					assertThat(admin.get("/api/catalogue").body()).doesNotContain("EXPIRED_SESSION");
+				}
+			}
+		}
+	}
+
+	@Test
+	void permissionDeniedDoesNotLogOutAnAuthenticatedUser() throws Exception {
+		staff.bootstrap("admin", "Browser Administrator", OidcTestProvider.ADMIN_SUBJECT);
+		PROVIDER.identity(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS, OidcTestProvider.Fault.NONE);
+		try (var chrome = new Chrome()) {
+			verifyPublicLogin(chrome);
+			chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/catalogue"));
+			chrome.await("document.title.startsWith('Catalogue') && document.readyState === 'complete'");
+			chrome.evaluate("""
+				(() => { const original = window.fetch;
+				window.fetch = (url, options) => String(url).endsWith('api/catalogue/types')
+					? Promise.resolve(new Response(JSON.stringify({detail: 'Permission denied'}),
+						{status: 403, headers: {'Content-Type': 'application/json'}}))
+					: original(url, options);
+				const f = document.querySelector('form[data-resource="types"]');
+				f.closest('details').open = true; f.elements.code.value = 'DENIED';
+				f.elements.name.value = 'Denied'; f.requestSubmit(); return true; })()
+				""");
+			chrome.await("document.querySelector('form[data-resource=\"types\"] .form-message').textContent === 'Permission denied'");
+			assertThat(chrome.evaluate("location.pathname").asText()).isEqualTo("/ui/catalogue");
+		}
+	}
 
 	@Test
 	void catalogueAndInventoryFormsPostConsecutiveChangesWithExactDecimalsAndVisibleErrors() throws Exception {

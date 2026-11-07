@@ -10,6 +10,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
@@ -88,8 +89,16 @@ public class SecurityConfiguration {
 						errors.write(request, response, HttpStatus.UNAUTHORIZED, "Sign in through Keycloak");
 					}
 				})
-				.accessDeniedHandler((request, response, exception) ->
-					errors.write(request, response, HttpStatus.FORBIDDEN, "Access denied or CSRF token missing or invalid")))
+				.accessDeniedHandler((request, response, exception) -> {
+					var authentication = SecurityContextHolder.getContext().getAuthentication();
+					if ("POST".equals(request.getMethod()) && "/api/auth/logout".equals(request.getServletPath())
+							&& (authentication == null || !(authentication.getPrincipal() instanceof StaffPrincipal))) {
+						response.sendRedirect(request.getContextPath() + "/login");
+					}
+					else {
+						errors.write(request, response, HttpStatus.FORBIDDEN, "Access denied or CSRF token missing or invalid");
+					}
+				}))
 			.addFilterBefore(new SessionValidationFilter(staff, errors, maximumAge), AuthorizationFilter.class);
 		return http.build();
 	}
