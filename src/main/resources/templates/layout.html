@@ -12,27 +12,30 @@
   <script defer th:src="@{/assets/app.js}"></script>
 </head>
 <body>
+<svg th:fragment="icon(name)" class="icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+  <use th:href="@{/assets/icons.svg} + '#' + ${name}"></use>
+</svg>
 <aside th:fragment="sidebar" class="sidebar">
   <a class="brand" th:href="@{/home}"><img class="brand-mark" th:src="@{/assets/prime-root-mark.svg}" width="44" height="44" alt="">Prime Root</a>
   <p class="nav-caption">WORKSPACE</p>
   <nav aria-label="Main navigation">
     <details class="nav-group" id="nav-whatsapp" th:if="${canWhatsApp}" th:open="${navGroup == 'whatsapp'}">
-      <summary>WhatsApp</summary>
+      <summary><svg th:replace="~{layout :: icon('message')}"></svg><span>WhatsApp</span></summary>
       <ul class="nav-children"><li><a th:href="@{/ui/whatsapp}" th:attr="aria-current=${page == 'whatsapp' ? 'page' : null}">Link reporting account</a></li></ul>
     </details>
-    <details class="nav-group" id="nav-dashboard" th:open="${navGroup == 'dashboard'}">
-      <summary>Dashboard</summary>
+    <details class="nav-group" id="nav-dashboard" th:unless="${createSale}" th:open="${navGroup == 'dashboard'}">
+      <summary><svg th:replace="~{layout :: icon('home')}"></svg><span>Dashboard</span></summary>
       <ul class="nav-children"><li><a th:href="@{/home}" th:attr="aria-current=${page == 'dashboard' ? 'page' : null}">Overview</a></li></ul>
     </details>
     <details class="nav-group" id="nav-sales" th:if="${createSale}" th:open="${navGroup == 'sales'}">
-      <summary>Sales</summary>
+      <summary><svg th:replace="~{layout :: icon('sales')}"></svg><span>Sales</span></summary>
       <ul class="nav-children">
         <li><a th:if="${createSale}" th:href="@{/ui/sales}" th:attr="aria-current=${page == 'sale' ? 'page' : null}">New sale</a>
           <span th:unless="${createSale}" aria-disabled="true">New sale <small>No access</small></span></li>
       </ul>
     </details>
     <details class="nav-group" id="nav-stock" th:if="${canStock}" th:open="${navGroup == 'stock'}">
-      <summary>Stock</summary>
+      <summary><svg th:replace="~{layout :: icon('box')}"></svg><span>Stock</span></summary>
       <ul class="nav-children">
         <li><a th:if="${canStock and receiveStock}" th:href="@{/ui/stock-entries}" th:attr="aria-current=${page == 'receipts' ? 'page' : null}">Receive stock</a>
           <span th:unless="${canStock and receiveStock}" aria-disabled="true">Receive stock <small>No access</small></span></li>
@@ -41,18 +44,18 @@
       </ul>
     </details>
     <details class="nav-group" id="nav-transfers" th:if="${canTransfers}" th:open="${navGroup == 'transfers'}">
-      <summary>Stock transfers</summary>
+      <summary><svg th:replace="~{layout :: icon('transfer')}"></svg><span>Stock transfers</span></summary>
       <ul class="nav-children">
         <li><a th:href="@{/ui/transfers}" th:attr="aria-current=${page == 'transfers' ? 'page' : null}">Dispatch &amp; history</a></li>
         <li><a th:href="@{/ui/transfers(status='IN_TRANSIT')}">In transit / receive</a></li>
       </ul>
     </details>
     <details class="nav-group" id="nav-expenses" th:if="${canExpenses}" th:open="${navGroup == 'expenses'}">
-      <summary>Expenses</summary>
+      <summary><svg th:replace="~{layout :: icon('wallet')}"></svg><span>Expenses</span></summary>
       <ul class="nav-children"><li><a th:href="@{/ui/expenses}" th:attr="aria-current=${page == 'expenses' ? 'page' : null}">Record &amp; history</a></li></ul>
     </details>
     <details class="nav-group" id="nav-reports" th:if="${!salesReportKinds.isEmpty() or canStock or canAudit}" th:open="${navGroup == 'reports'}">
-      <summary>Reports</summary>
+      <summary><svg th:replace="~{layout :: icon('report')}"></svg><span>Reports</span></summary>
       <ul class="nav-children">
         <li th:if="${canProfit}"><a th:href="@{/ui/reports/net-profit}" th:attr="aria-current=${page == 'net-profit' ? 'page' : null}">Net profit after expenses and losses</a></li>
         <li th:each="kind : ${salesReportKinds}"><a th:href="@{/ui/reports/{path}(path=${kind.path})}"
@@ -66,12 +69,12 @@
       </ul>
     </details>
     <details class="nav-group" id="nav-users" th:if="${canUsers}" th:open="${navGroup == 'users'}">
-      <summary>User management</summary>
+      <summary><svg th:replace="~{layout :: icon('users')}"></svg><span>User management</span></summary>
       <ul class="nav-children"><li><a th:if="${canUsers}" th:href="@{/ui/users}" th:attr="aria-current=${page == 'users' ? 'page' : null}">Staff &amp; branch assignments</a>
         <span th:unless="${canUsers}" aria-disabled="true">Staff &amp; branch assignments <small>No access</small></span></li></ul>
     </details>
     <details class="nav-group" id="nav-configurations" th:if="${canCatalogue or canBranches}" th:open="${navGroup == 'configurations'}">
-      <summary>Configurations</summary>
+      <summary><svg th:replace="~{layout :: icon('settings')}"></svg><span>Configurations</span></summary>
       <ul class="nav-children">
         <li><a th:href="@{/ui/configurations}" th:attr="aria-current=${page == 'configurations' ? 'page' : null}">Overview</a></li>
         <li><a th:if="${canCatalogue}" th:href="@{/ui/catalogue}" th:attr="aria-current=${page == 'catalogue' ? 'page' : null}">Catalogue and units</a>
@@ -82,21 +85,20 @@
     </details>
   </nav>
   <div class="sidebar-foot">
-    <strong th:text="${current.staff.fullName}">Staff member</strong>
+    <div class="staff-identity"><span class="staff-avatar" aria-hidden="true"><svg th:replace="~{layout :: icon('users')}"></svg></span>
+      <strong th:text="${current.staff.fullName}">Staff member</strong></div>
     <p th:text="${current.staff.allBranches ? 'Business-wide' : 'Assigned active branches'}"></p>
-    <form th:action="@{/api/auth/logout}" method="post"><button class="signout" type="submit">Sign out</button></form>
+    <form th:action="@{/api/auth/logout}" method="post"><button class="signout" type="submit"><svg th:replace="~{layout :: icon('logout')}"></svg>Sign out</button></form>
   </div>
 </aside>
 <header th:fragment="header(title, subtitle)" class="page-header">
-  <div><p class="eyebrow">PRIME ROOT</p><h1 th:text="${title}">Dashboard</h1><p class="muted" th:text="${subtitle}"></p></div>
-  <span class="badge">Phase 6 / Expenses &amp; net profit</span>
+  <div><h1 th:text="${title}">Dashboard</h1></div>
 </header>
 <form th:fragment="dates(action)" method="get" th:action="${action}" class="date-filter panel">
   <input th:if="${selectedBranch != null}" type="hidden" name="branchId" th:value="${selectedBranch}">
   <label>From (UTC)<input type="date" name="start" required min="1970-01-01" th:max="${today}" th:value="${period.start}"></label>
   <label>To (UTC)<input type="date" name="end" required min="1970-01-01" th:max="${today}" th:value="${period.end}"></label>
   <button type="submit">Apply interval</button><a th:href="${action}">This week</a>
-  <p class="hint">Monday through today by default. Dates are inclusive; up to 366 days.</p>
 </form>
 <div th:fragment="notice" id="notice" role="status" aria-live="polite" hidden></div>
 <th:block th:fragment="identityFields">

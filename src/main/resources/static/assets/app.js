@@ -338,12 +338,38 @@
     [...line.querySelectorAll('[name]')].map(field => [field.name, field.value || null])));
   const readSaleQuote = () => ({lines: readSaleLines(), saleDate: saleForm.elements.saleDate.value});
   let quotedLines = null;
+  let quoteTimer;
+  const saleCount = () => {
+    if (!saleForm) return;
+    const count = [...saleLines.children].filter(line => line.querySelector('[name="productId"]').value).length;
+    document.getElementById('sale-count').textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
+  };
   const invalidateQuote = () => {
+    clearTimeout(quoteTimer);
     quotedLines = null;
-    document.getElementById('sale-total').textContent = 'Calculate the total before receiving payment.';
+    const output = document.getElementById('sale-total');
+    output.className = '';
+    output.textContent = 'Calculate the total';
+    saleLines.querySelectorAll('.line-total').forEach(total => { total.textContent = '--'; });
     saleForm.elements.paymentConfirmed.checked = false;
+    saleCount();
+    quoteTimer = setTimeout(() => {
+      if (!document.getElementById('quote-sale').disabled
+          && [...saleLines.querySelectorAll('input, select'), saleForm.elements.saleDate].every(field => field.checkValidity())) {
+        quoteSale();
+      }
+    }, 350);
   };
   saleLines?.addEventListener('input', invalidateQuote);
+  saleLines?.addEventListener('change', event => {
+    if (event.target.name === 'productId') {
+      const line = event.target.closest('.sale-line');
+      line.querySelector('[name="unitId"]').value = event.target.selectedOptions[0]?.dataset.unit || '';
+      line.querySelector('[name="unitPrice"]').value = '';
+      line.querySelector('[name="measuredBaseQuantity"]').value = '';
+    }
+    invalidateQuote();
+  });
   saleForm?.elements.saleDate.addEventListener('input', invalidateQuote);
   const customer = document.getElementById('sale-customer');
   customer?.addEventListener('change', () => {
@@ -352,34 +378,85 @@
     saleForm.elements.customerName.disabled = !adding;
     saleForm.elements.customerName.required = adding;
   });
-  document.getElementById('add-sale-line')?.addEventListener('click', () => {
+  const addSaleLine = () => {
     if (saleLines.children.length >= 50) {
       showNotice('A sale can contain at most 50 lines.', true);
       return;
     }
     const line = saleLines.firstElementChild.cloneNode(true);
     line.querySelectorAll('input, select').forEach(field => { field.value = ''; });
+    line.querySelector('[name="quantity"]').value = '1';
+    line.querySelectorAll('details').forEach(details => { details.open = false; });
+    line.querySelector('.line-total').textContent = '--';
     saleLines.append(line);
     invalidateQuote();
+    return line;
+  };
+  document.getElementById('add-sale-line')?.addEventListener('click', () => {
+    addSaleLine()?.querySelector('[name="productId"]').focus();
   });
-  saleLines?.addEventListener('click', event => {
-    if (!event.target.closest('[data-remove-sale-line]')) return;
-    if (saleLines.children.length === 1) {
-      showNotice('A sale needs at least one product line.', true);
+  const changeQuantity = (line, direction) => {
+    const field = line.querySelector('[name="quantity"]');
+    const value = field.value || '0';
+    if (!/^\d*(?:\.\d{0,6})?$/.test(value)) {
+      showNotice('Enter a decimal quantity with up to six decimal places.', true);
       return;
     }
-    event.target.closest('.sale-line').remove();
+    const [whole, fraction = ''] = value.split('.');
+    const quantity = BigInt(whole || '0') * 1000000n + BigInt(fraction.padEnd(6, '0')) + BigInt(direction) * 1000000n;
+    if (quantity <= 0n || quantity > 9999999999999999999n) return;
+    field.value = `${quantity / 1000000n}.${(quantity % 1000000n).toString().padStart(6, '0')}`.replace(/\.?0+$/, '');
+    invalidateQuote();
+  };
+  saleLines?.addEventListener('click', event => {
+    const quantityButton = event.target.closest('[data-quantity-change]');
+    if (quantityButton) {
+      changeQuantity(quantityButton.closest('.sale-line'), quantityButton.dataset.quantityChange);
+      return;
+    }
+    if (!event.target.closest('[data-remove-sale-line]')) return;
+    if (saleLines.children.length === 1) {
+      saleLines.firstElementChild.querySelectorAll('input, select').forEach(field => { field.value = ''; });
+      saleLines.firstElementChild.querySelector('[name="quantity"]').value = '1';
+    } else {
+      event.target.closest('.sale-line').remove();
+    }
     invalidateQuote();
   });
   saleForm?.elements.paymentMethod.addEventListener('change', () => {
-    saleForm.elements.paymentReference.required = saleForm.elements.paymentMethod.value !== 'CASH';
+    const method = saleForm.elements.paymentMethod.value;
+    saleForm.elements.paymentReference.required = method !== 'CASH';
+    document.getElementById('payment-reference-label').hidden = method === 'CASH';
+    document.querySelectorAll('[data-payment]').forEach(button => {
+      button.classList.toggle('selected', button.dataset.payment === method);
+      button.setAttribute('aria-pressed', String(button.dataset.payment === method));
+    });
     saleForm.elements.paymentConfirmed.checked = false;
   });
-  document.getElementById('quote-sale')?.addEventListener('click', async event => {
-    const button = event.currentTarget;
+  document.querySelectorAll('[data-payment]').forEach(button => {
+    button.addEventListener('click', () => {
+      saleForm.elements.paymentMethod.value = button.dataset.payment;
+      saleForm.elements.paymentMethod.dispatchEvent(new Event('change'));
+    });
+  });
+  const quoteSale = async () => {
+    const button = document.getElementById('quote-sale');
+    if (button.disabled) return;
+    clearTimeout(quoteTimer);
+    for (const field of [...saleLines.querySelectorAll('input, select'), saleForm.elements.saleDate]) {
+      if (!field.checkValidity()) {
+        if (field.closest('details')) field.closest('details').open = true;
+        field.reportValidity();
+        return;
+      }
+    }
     const input = readSaleQuote();
     const fingerprint = JSON.stringify(input);
     const output = document.getElementById('sale-total');
+    quotedLines = null;
+    saleForm.elements.paymentConfirmed.checked = false;
+    saleLines.querySelectorAll('.line-total').forEach(total => { total.textContent = '--'; });
+    saleCount();
     button.disabled = true;
     try {
       const quote = await request('api/sales/quote', {
@@ -388,15 +465,21 @@
       if (JSON.stringify(readSaleQuote()) !== fingerprint) throw new Error('Lines or sale date changed. Calculate the total again.');
       quotedLines = fingerprint;
       output.className = '';
-      output.textContent = `Total: ${quote.currency} ${quote.total}. Stock availability is rechecked when posting.`;
+      output.textContent = `Total: ${quote.currency} ${quote.total}`;
+      [...saleLines.children].forEach((line, index) => {
+        line.querySelector('.line-total').textContent = `${quote.currency} ${quote.lines[index].total}`;
+      });
     } catch (error) {
+      if (JSON.stringify(readSaleQuote()) !== fingerprint) return;
       quotedLines = null;
       output.className = 'error';
       output.textContent = error instanceof TypeError ? 'Network error while calculating the total. Retry.' : error.message;
     } finally {
       button.disabled = false;
+      if (JSON.stringify(readSaleQuote()) !== fingerprint) invalidateQuote();
     }
-  });
+  };
+  document.getElementById('quote-sale')?.addEventListener('click', quoteSale);
   document.getElementById('print-receipt')?.addEventListener('click', () => window.print());
   [saleForm, document.getElementById('sale-void-form')].filter(Boolean).forEach(form => {
     form.addEventListener('submit', async event => {
@@ -457,15 +540,20 @@
   receiptLines?.addEventListener('change', event => {
     if (event.target.name === 'productId') updateReceiptGrades(event.target.closest('.receipt-line'));
   });
-  document.getElementById('add-receipt-line')?.addEventListener('click', () => {
+  const addReceiptLine = () => {
     if (receiptLines.children.length >= 50) {
       showNotice('A receipt can contain at most 50 product lines.', true);
       return;
     }
     const line = receiptLines.firstElementChild.cloneNode(true);
     line.querySelectorAll('input, select').forEach(field => { field.value = ''; });
+    line.querySelectorAll('details').forEach(details => { details.open = false; });
     updateReceiptGrades(line);
     receiptLines.append(line);
+    return line;
+  };
+  document.getElementById('add-receipt-line')?.addEventListener('click', () => {
+    addReceiptLine()?.querySelector('[name="productId"]').focus();
   });
   receiptLines?.addEventListener('click', event => {
     if (!event.target.closest('[data-remove-line]')) return;
@@ -475,6 +563,78 @@
     }
     event.target.closest('.receipt-line').remove();
   });
+  const picker = document.querySelector('[data-entry-mode]');
+  if (picker) {
+    const cards = [...picker.querySelectorAll('[data-add-product]')];
+    const search = document.getElementById('product-search');
+    const filters = picker.querySelector('.product-filters');
+    let category = '';
+    const filterProducts = () => {
+      const text = search.value.trim().toLocaleLowerCase();
+      cards.forEach(card => {
+        card.hidden = (category && card.dataset.type !== category)
+          || !`${card.dataset.name} ${card.dataset.category}`.toLocaleLowerCase().includes(text);
+      });
+      document.getElementById('product-empty').hidden = cards.some(card => !card.hidden);
+    };
+    const categories = new Map(cards.map(card => [card.dataset.type, card.dataset.category]));
+    categories.forEach((name, id) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = name;
+      button.dataset.productFilter = id;
+      button.setAttribute('aria-pressed', 'false');
+      filters.append(button);
+    });
+    filters.addEventListener('click', event => {
+      const selected = event.target.closest('[data-product-filter]');
+      if (!selected) return;
+      category = selected.dataset.productFilter;
+      filters.querySelectorAll('button').forEach(button => {
+        button.classList.toggle('selected', button === selected);
+        button.setAttribute('aria-pressed', String(button === selected));
+      });
+      filterProducts();
+    });
+    search.addEventListener('input', filterProducts);
+    cards.forEach(card => {
+      const name = `${card.dataset.name} ${card.dataset.category}`.toLowerCase();
+      const artwork = ['onion', 'tomato', 'potato', 'cabbage', 'carrot'].find(type => name.includes(type));
+      if (artwork) {
+        const use = card.querySelector('.product-art use');
+        use.setAttribute('href', `${use.getAttribute('href').split('#')[0]}#produce-${artwork}`);
+      }
+      card.addEventListener('click', () => {
+        const selling = picker.dataset.entryMode === 'sale';
+        const container = selling ? saleLines : receiptLines;
+        const empty = [...container.children].find(row => !row.querySelector('[name="productId"]').value);
+        if (selling && !empty) {
+          const matching = [...container.children].find(line =>
+            line.querySelector('[name="productId"]').value === card.dataset.id
+            && line.querySelector('[name="unitId"]').value === card.dataset.unit
+            && !line.querySelector('[name="measuredBaseQuantity"]').value);
+          if (matching) {
+            changeQuantity(matching, '1');
+            return;
+          }
+        }
+        const line = empty || (selling ? addSaleLine() : addReceiptLine());
+        if (!line) return;
+        line.querySelector('[name="productId"]').value = card.dataset.id;
+        line.querySelector('[name="unitId"]').value = card.dataset.unit;
+        if (selling) {
+          if (!line.querySelector('[name="quantity"]').value) line.querySelector('[name="quantity"]').value = '1';
+          invalidateQuote();
+          line.querySelector('[name="unitPrice"]').focus({preventScroll: window.matchMedia('(min-width: 1151px)').matches});
+        } else {
+          updateReceiptGrades(line);
+          const source = document.getElementById('stock-receipt').elements.source.value;
+          if (source.length <= 64 && !line.querySelector('[name="lotCode"]').value) line.querySelector('[name="lotCode"]').value = source;
+          line.querySelector('[name="quantity"]').focus({preventScroll: window.matchMedia('(min-width: 1151px)').matches});
+        }
+      });
+    });
+  }
   document.querySelectorAll('[data-batch-branch]').forEach(select => {
     select.addEventListener('change', () => {
       select.form.elements.namedItem('branchId').value = select.selectedOptions[0]?.dataset.branch || '';

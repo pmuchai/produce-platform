@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org"><body>
 <div th:fragment="filters">
-  <p class="hint" th:text="${batchPage.totalElements} + ' matching batches. Search by lot, product or grade; up to 100 per page.'"></p>
+  <p class="hint" th:text="${batchPage.totalElements} + ' matching batches'"></p>
   <form method="get" class="date-filter" th:action="@{${inventoryPath}}">
     <input type="hidden" name="start" th:value="${period.start}"><input type="hidden" name="end" th:value="${period.end}">
     <input type="hidden" name="branchId" th:value="${selectedBranch}">

@@ -7,7 +7,7 @@
 <main id="main" class="workspace">
   <header th:replace="~{layout :: header('Operating expenses', 'Paid costs within your authorized branch scope')}"></header>
   <div th:replace="~{layout :: notice}"></div>
-  <p class="hint">Record payments already completed manually. This does not move money. Do not record inventory purchases, transfers or sales refunds here: their costs are already accounted for. Voiding corrects a recording error, not a refund, and reverses the expense on today's UTC date.</p>
+  <p class="hint">Paid operating costs only. Exclude inventory purchases and sales refunds.</p>
   <section class="panel" th:if="${createExpense}">
     <h2>Record paid expense</h2>
     <form id="expense-form" class="editor">
@@ -31,7 +31,6 @@
   </form>
   <section class="panel">
     <h2>Expense history</h2>
-    <p class="hint">Includes records paid in this interval or voided in this interval. Original entries are retained.</p>
     <div class="table-wrap"><table><thead><tr><th>Paid date / branch</th><th>Category / description</th><th>Payee / recorded by</th><th>Amount</th><th>Payment</th><th>Status / correction</th></tr></thead>
       <tbody><tr th:each="row : ${history.rows}">
         <td><span th:text="${row.paidDate}"></span><br><span th:text="${row.branch}"></span></td>

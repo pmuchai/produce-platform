@@ -1,9 +1,6 @@
 <!doctype html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org"><body>
 <div th:fragment="balances">
-  <p class="hint">Current stock is live. As-of stock is at the end of the selected UTC interval, from posting history.
-    Receipts and spoilage are net posted quantities, including reversals; previous means the preceding equal-length interval.
-    All quantities use the product's base unit. Different units are never added together.</p>
   <div class="table-scroll"><table id="stock-balances">
     <thead><tr><th>Branch / product</th><th>Current</th><th>As of interval end</th><th>Receipts / previous</th><th>Spoilage / previous</th><th>Minimum / status</th></tr></thead>
     <tbody><tr th:each="balance : ${inventory.balances}">
@@ -19,9 +16,8 @@
   </table></div>
 </div>
 <div th:fragment="currentBalances">
-  <p class="hint">Live physical quantities in each product's base unit. Expired stock remains on hand until a loss or correction is posted.</p>
   <div class="table-scroll"><table id="stock-balances">
-    <thead><tr><th>Branch / product</th><th>Current</th><th>Minimum / status</th></tr></thead>
+    <thead><tr><th>Branch / product</th><th>On hand</th><th>Minimum / status</th></tr></thead>
     <tbody><tr th:each="balance : ${inventory.balances}">
       <td><strong th:text="${balance.product}"></strong><small th:text="${balance.branch}"></small></td>
       <td th:text="${balance.current} + ' ' + ${balance.baseUnit}"></td>

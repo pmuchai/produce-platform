@@ -587,7 +587,7 @@ to the identity provider.
 | GET | `/`, `/login` | Start Keycloak sign-in directly; authenticated staff redirect to `/home` |
 | GET | `/oauth2/authorization/keycloak` | Initiate browser login |
 | GET | `/login/oauth2/code/keycloak` | Provider callback; redirects to `/home` after approval |
-| GET | `/home` | Welcome dashboard with permission- and scope-filtered summaries |
+| GET | `/home` | Scoped dashboard; eligible salespeople redirect to New sale |
 | GET | `/api/auth/csrf` | Public CSRF token, header name and parameter name |
 | GET | `/api/auth/me` | Current local `staff` profile and effective `permissions` |
 | POST | `/api/auth/logout` | CSRF-protected local logout; redirects through Keycloak logout to `/`, which starts a fresh branded Keycloak login |
@@ -634,9 +634,10 @@ automatically and its active child is highlighted.
 
 Parent sections are omitted when the current permissions and staff scope do not
 allow any of their business pages. A single-branch salesperson with only
-`SALE_CREATE` sees **Dashboard**, **Sales** and their permitted **Reports**,
+`SALE_CREATE` lands directly on **New sale** and sees **Sales** and their permitted **Reports**,
 not Stock, User management or Configurations. The Sales parent appears only
 when New sale is available; business-wide and multiple-branch staff cannot sell.
+Administrators and nonselling staff retain the monthly dashboard.
 Children without the required permissions in otherwise accessible groups are
 disabled or omitted, not functional links. These navigation rules do not replace
 the existing server-side authorization checks.
@@ -706,14 +707,40 @@ allows other staff's sales in scope and `PROFIT_VIEW` exposes financial reports.
 Existing `STOCK_VIEW` also exposes receipt purchase costs. Role changes require
 a fresh sign-in.
 
-The dashboard defaults to Monday through today in **UTC**, with inclusive
-start/end date controls (maximum 366 days, no future dates). Global `AUDIT_VIEW`
-shows the actual number of audit events in that interval and the absolute
-change against the preceding equal-length interval. Counts are not capped at
+The dashboard defaults to the **current UTC month**, with a month picker that
+refreshes all date-based summaries and charts. Completed months compare against
+the full previous calendar month; the current month compares month-to-date with
+the same elapsed days in the previous month (clamped to its final day). Future
+months and months before January 1970 are rejected. Existing `/home?start=...&end=...`
+links retain their explicit interval and equal-length comparison behavior.
+Other reports still default to Monday through today.
+Global `AUDIT_VIEW` shows the actual number of audit events in the selected
+period and the absolute change against the comparison period. Counts are not capped at
 100; the report shows the most recent 100 matching events and the total count.
 Sign-ins and administrative activity are explicitly not staff performance.
-Sales trends compare net revenue with the preceding equal-length interval,
-separately by currency. Branch/staff cards count actual attributed sales/refund
+Sales cards show net revenue, absolute/percentage changes, receipts and refunds,
+separately by currency. Daily line charts compare elapsed days with zero-filled
+no-sales days; salesperson bar charts aggregate across accessible branches and
+show the top ten plus Other, with all exact figures in accessible tables.
+Charts use local SVG rendering, without an external chart CDN or third-party
+data transfer. The donut divides net sales into COGS and gross profit, rather
+than incorrectly treating sales as an additional slice. Zero or negative
+splits are shown numerically, not as misleading pie slices.
+Financial summaries include paid expenses, finalized stock losses and net
+profit, with the previous period and known-cost net-profit changes.
+Unknown costs continue to suppress net profit.
+The overview uses five compact financial cards (net sales, COGS, gross profit,
+total expenses and net profit) for authorized financial viewers, a selectable
+reporting currency, and a live stock strip showing up to three products plus
+low-stock alerts. Live quantities aggregate accessible branches by product ID
+and base unit; different products or units are never added together.
+Sales viewers also get a quantity-sold card for the selected period and currency,
+net of refunds and grouped by base unit. Its totals cover all matching products,
+not just the first product-report page.
+Detailed figures, scope information and accounting notes remain available in
+collapsed sections. Authored local SVG icons cover navigation, cards and stock
+indicators; no icon CDN or new runtime dependency is required.
+Branch/staff cards count actual attributed sales/refund
 activity, and the gross-profit card requires `PROFIT_VIEW`. Sellers without
 `SALES_VIEW` see only their own transactions. With `STOCK_VIEW`, real branch/product stock,
 receipts, spoilage comparisons, low-stock alerts and expiry warnings replace
@@ -1056,11 +1083,19 @@ appears in the customer report. These are transaction customer names, not a
 customer-credit/CRM register or globally exposed customer directory.
 
 Enter one or more products, selling units, quantities and unit selling prices.
+Search or filter the product tiles and click to add an item. Tiles show current
+physical stock in the assigned branch, including expired stock; this is not a
+promise of sale-date eligibility. Prices remain manually entered in the cart.
+Repeated clicks increase quantity; an explicit new line can use a different unit
+or price. Receiving uses the same product picker, but always adds distinct delivery
+lines so the same product can have different grades within one batch.
 Fixed packaging and actual measured packaging use the same conversion service
 as receipts; the sale snapshots its conversion and product/unit labels.
-**Calculate total** validates the combined quantities across all lines against
+Valid cart edits refresh totals automatically. **Review total** also validates
+the combined quantities across all lines against
 stock eligible on the selected sale date and computes the rounded payable amount
-on the server, without posting stock or reserving it. Recalculate after changing lines or date, receive the
+and each line total on the server, without posting stock or reserving it.
+Changing lines or the date clears payment confirmation. Receive the
 full payment, confirm it and post. A concurrent checkout can change availability;
 posting rechecks everything atomically.
 
@@ -1153,7 +1188,7 @@ bounded to 100 per page and totals are not truncated with the page.
 **Gross profit = net sales revenue minus net allocated COGS.** It is not net
 business profit and does not subtract operating expenses, taxes or separately
 reported stock losses. Dashboard trend cards show absolute changes from the
-previous equal-length interval, including a zero-sales current interval;
+previous month comparison, including a zero-sales current interval;
 staff performance never counts sign-ins as sales.
 
 | Method | Endpoint | Purpose |

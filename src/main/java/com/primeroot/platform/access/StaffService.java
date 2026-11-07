@@ -51,6 +51,12 @@ public class StaffService {
 		return new CurrentUserResponse(UserResponse.from(access.currentUser()), access.permissions());
 	}
 
+	public boolean canCreateSale() {
+		var user = access.currentUser();
+		return access.permissions().contains(Permission.SALE_CREATE) && !user.isAllBranches()
+			&& user.getBranches().size() == 1 && user.getBranches().iterator().next().isActive();
+	}
+
 	public List<UserResponse> list() {
 		access.requireGlobalPermission(Permission.USER_VIEW);
 		return users.findAllByOrderByUsername().stream().map(UserResponse::from).toList();

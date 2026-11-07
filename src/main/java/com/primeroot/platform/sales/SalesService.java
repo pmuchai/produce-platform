@@ -43,6 +43,7 @@ public class SalesService {
 	private final CatalogueQuantityService quantities;
 	private final StockOperationRepository operations;
 	private final SaleStockLedger ledger;
+	private final com.primeroot.platform.inventory.StockBatchRepository batches;
 	private final SaleRepository sales;
 	private final SaleLineRepository lines;
 	private final SaleAllocationRepository allocations;
@@ -53,7 +54,8 @@ public class SalesService {
 	public SalesService(AccessService access, BranchRepository branches, ProductRepository products, UnitRepository units,
 			CatalogueQuantityService quantities, StockOperationRepository operations, SaleStockLedger ledger,
 			SaleRepository sales, SaleLineRepository lines, SaleAllocationRepository allocations, AuditRepository audit,
-			JsonMapper json, @Value("${platform.inventory.currency}") String currency) {
+			JsonMapper json, com.primeroot.platform.inventory.StockBatchRepository batches,
+			@Value("${platform.inventory.currency}") String currency) {
 		this.access = access;
 		this.branches = branches;
 		this.products = products;
@@ -61,6 +63,7 @@ public class SalesService {
 		this.quantities = quantities;
 		this.operations = operations;
 		this.ledger = ledger;
+		this.batches = batches;
 		this.sales = sales;
 		this.lines = lines;
 		this.allocations = allocations;
@@ -82,11 +85,18 @@ public class SalesService {
 
 	public SalesDtos.Entry entry() {
 		var branch = sellingBranch();
+		var balances = new java.util.HashMap<UUID, BigDecimal>();
+		for (var row : batches.currentBalances(List.of(branch.getId()))) {
+			balances.put((UUID) row[1], (BigDecimal) row[2]);
+		}
 		return new SalesDtos.Entry(branch.getId(), branch.getName(), currency.getCurrencyCode(),
 			products.findAllByOrderByCode().stream().filter(product -> product.isActive() && product.getBaseUnit().isActive()
 				&& product.getProduceType().isActive()
 				&& (product.getVariety() == null || product.getVariety().isActive()))
-				.map(product -> new SalesDtos.Option(product.getId(), product.getCode() + " / " + product.getName())).toList(),
+				.map(product -> new SalesDtos.ProductOption(product.getId(), product.getCode() + " / " + product.getName(),
+					product.getName(), product.getBaseUnit().getCode(), product.getBaseUnit().getId(),
+					product.getProduceType().getId(), product.getProduceType().getName(),
+					balances.getOrDefault(product.getId(), BigDecimal.ZERO))).toList(),
 			units.findAllByOrderByCode().stream().filter(UnitOfMeasure::isActive)
 				.map(unit -> new SalesDtos.Option(unit.getId(), unit.getCode())).toList(),
 			sales.customers(branch.getId(), PageRequest.of(0, 500)));
@@ -96,14 +106,17 @@ public class SalesService {
 		var branch = sellingBranch();
 		var saleDate = saleDate(request.saleDate());
 		var total = BigDecimal.ZERO;
+		var quoted = new java.util.ArrayList<SalesDtos.QuoteLine>();
 		var required = new java.util.LinkedHashMap<UUID, BigDecimal>();
 		for (var line : request.lines()) {
 			var conversion = quantities.resolve(line.productId(), line.unitId(), line.quantity(), line.measuredBaseQuantity());
 			required.merge(line.productId(), conversion.quantity(), BigDecimal::add);
-			total = total.add(lineAmount(line));
+			var amount = lineAmount(line);
+			total = total.add(amount);
+			quoted.add(new SalesDtos.QuoteLine(amount));
 		}
 		required.forEach((product, quantity) -> ledger.checkAvailable(branch.getId(), product, quantity, currency, saleDate));
-		return new SalesDtos.Quote(currency.getCurrencyCode(), money(total));
+		return new SalesDtos.Quote(currency.getCurrencyCode(), money(total), quoted);
 	}
 
 	@Transactional

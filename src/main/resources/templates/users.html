@@ -6,15 +6,10 @@
 <main id="main" class="workspace">
   <header th:replace="~{layout :: header('User management', 'Approve staff and assign selling branches; credentials and permissions remain in Keycloak')}"></header>
   <div th:replace="~{layout :: notice}"></div>
-  <p class="hint">Create the account and assign its permissions in Keycloak first. Ask the user to sign in once:
-    their verified identity will appear in Pending access requests below. Review the request and choose branch access; no user ID copying is needed.
-    Prime Root does not create passwords or assign Keycloak roles.</p>
   <p class="hint" th:unless="${manageUsers}">Read-only directory. Business-wide USER_MANAGE is required to approve staff or change branch assignments.</p>
   <p class="hint" th:if="${manageUsers and !canBranches}">BRANCH_VIEW is also required to load the branch choices for staff management.</p>
   <section id="access-requests" class="panel">
     <h2>Pending access requests</h2>
-    <p class="hint">These users have authenticated with Keycloak but have no Prime Root business access yet. Check their Keycloak permissions before approval.
-      Use one active branch for salespeople or Business-wide for administrators.</p>
     <div class="table-scroll"><table>
       <thead><tr><th>Name</th><th>Suggested username</th><th>Requested (UTC)</th><th th:if="${manageUsers and canBranches}">Action</th></tr></thead>
       <tbody>
@@ -41,30 +36,24 @@
   </tbody></table></div></section>
   <section th:if="${manageUsers and canBranches}" id="staff-editor" class="panel">
     <h2 id="staff-editor-title">Approve staff / sales user</h2>
-    <p class="hint">Salespeople need single-branch scope and SALE_CREATE in Keycloak. Multiple-branch and business-wide staff can report within their permissions, but cannot post sales.
-      Existing usernames and Keycloak identities cannot be changed. Another administrator must remove your own business-wide access or deactivate your account.</p>
     <form id="staff-form" class="editor">
       <input type="hidden" name="accessRequestId">
       <input type="hidden" name="id">
       <input type="hidden" name="version">
       <label>Username<input name="username" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]{2,63}" minlength="3" maxlength="64" autocomplete="off"></label>
       <label>Full name<input name="fullName" required maxlength="120" autocomplete="off"></label>
-      <label>Keycloak user ID<input name="subject" required maxlength="255" autocomplete="off" aria-describedby="staff-identity-help"></label>
-      <p id="staff-identity-help" class="hint full-width">Review request fills the verified identity automatically and makes it read-only.
-        For optional manual approval before a first sign-in, copy the exact user ID from Keycloak Users.</p>
+      <label>Keycloak user ID<input name="subject" required maxlength="255" autocomplete="off"></label>
       <label>Branch access<select name="scope">
         <option value="single">Single branch (required for sales)</option>
         <option value="multiple">Multiple assigned branches</option>
         <option value="global">Business-wide (no selling)</option>
       </select></label>
-      <label id="staff-branch-label">Assigned branch<select name="branchIds" required aria-describedby="staff-branch-help">
+      <label id="staff-branch-label">Assigned branch<select name="branchIds" required>
         <option value="">Choose branch</option>
         <option th:each="branch : ${branches}" th:value="${branch.id}" th:attr="data-active=${branch.active}"
           th:text="${branch.code + ' - ' + branch.name + (branch.active ? '' : ' (inactive)')}"></option>
       </select></label>
       <label class="check"><input type="checkbox" name="active" checked disabled>Active staff account</label>
-      <p id="staff-branch-help" class="hint full-width">New staff are approved as active. Select one active branch for a salesperson. For multiple-branch scope, use Ctrl/Cmd to select branches.
-        Inactive branches cannot be assigned to active branch-scoped staff.</p>
       <div class="form-actions"><button type="submit">Approve staff</button><button type="reset" class="secondary">Clear / new user</button><output class="form-message" aria-live="polite"></output></div>
     </form>
   </section>

@@ -53,7 +53,8 @@ public final class InventoryDtos {
 	public record BranchOption(UUID id, String name, boolean active) {
 	}
 
-	public record ProductOption(UUID id, String code, String name, String baseUnit, boolean active, UUID produceTypeId) {
+	public record ProductOption(UUID id, String code, String name, String baseUnit, boolean active, UUID produceTypeId,
+		UUID baseUnitId, String produceType) {
 	}
 
 	public record GradeOption(UUID id, String name, UUID produceTypeId) {

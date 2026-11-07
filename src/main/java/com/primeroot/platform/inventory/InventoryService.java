@@ -277,7 +277,8 @@ public class InventoryService {
 			: movements.history(ids, period.from(), period.until(), PageRequest.of(page, 100));
 		return new Snapshot(visible.stream().map(branch -> new BranchOption(branch.getId(), branch.getName(), branch.isActive())).toList(),
 			productEntities.stream().map(product -> new ProductOption(product.getId(), product.getCode(),
-				product.getName(), product.getBaseUnit().getCode(), product.isActive(), product.getProduceType().getId())).toList(),
+				product.getName(), product.getBaseUnit().getCode(), product.isActive(), product.getProduceType().getId(),
+				product.getBaseUnit().getId(), product.getProduceType().getName())).toList(),
 			units.findAllByOrderByCode().stream().filter(UnitOfMeasure::isActive)
 				.map(unit -> new UnitOption(unit.getId(), unit.getCode())).toList(),
 			balances, movementResponses(history.getContent()), history.getTotalElements(), page,

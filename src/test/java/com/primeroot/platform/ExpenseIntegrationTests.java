@@ -183,7 +183,8 @@ class ExpenseIntegrationTests extends OidcTestSupport {
 			assertThat(total(admin.body(admin.get(reportUrl(today, today))), "KES").get("netProfit").asText()).isEqualTo("-1.34");
 			assertThat(scoped.get("/ui/reports/net-profit").body()).contains("12.34", "Net profit after expenses and losses")
 				.doesNotContain("id=\"nav-expenses\"");
-			assertThat(scoped.get("/home").body()).contains("id=\"net-profit-card\"");
+			assertThat(scoped.get("/home").body()).contains("id=\"net-profit-card\"", "id=\"expenses-card\"",
+				"data-amount=\"12.34\"", "data-amount=\"7.66\"");
 			var spoilageMovement = admin.body(loss).get("movements").get(0).get("id").asText();
 			assertThat(admin.mutate("POST", "/api/inventory/reversals", Map.of("requestId", UUID.randomUUID(), "branchId", branch,
 				"movementId", spoilageMovement, "reason", "Spoilage entered in error")).statusCode()).isEqualTo(200);
@@ -225,6 +226,14 @@ class ExpenseIntegrationTests extends OidcTestSupport {
 			admin.mutate("POST", "/api/inventory/reversals", Map.of("requestId", UUID.randomUUID(), "branchId", branch,
 				"movementId", movement, "reason", "Undo legacy loss"));
 			assertThat(total(admin.body(admin.get(reportUrl(today, today))), "KES").get("netProfit").asText()).isEqualTo("-10.00");
+			jdbc.update("UPDATE expenses SET paid_date = DATE '2024-01-31'");
+			jdbc.update("""
+				UPDATE stock_operations SET posted_at = TIMESTAMP WITH TIME ZONE '2024-02-04 00:00:00+00:00'
+				WHERE id = (SELECT operation_id FROM stock_movements WHERE id = ?)
+				""", UUID.fromString(movement));
+			var dashboard = admin.get("/home?month=2024-02").body();
+			assertThat(dashboard).contains("Unavailable: unknown loss costs")
+				.doesNotContain("KES / change", "USD / change");
 		}
 	}
 

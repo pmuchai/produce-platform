@@ -18,7 +18,6 @@
   </section>
   <section class="panel">
     <h2>Dispatched allocations</h2>
-    <p class="hint">Product and classification snapshots, original receipt/expiry dates and source batches are retained. Arrival creates stock, not revenue. Unknown source costs remain unknown.</p>
     <div class="table-wrap"><table><thead><tr><th>Product / classification</th><th>Source trace</th><th>Dates</th><th>Dispatched</th><th>Received / shortage / damaged</th><th>Destination trace / reason</th><th th:if="${canProfit}">Carrying cost / arrived / lost</th></tr></thead>
       <tbody><tr th:each="a : ${detail.allocations}">
         <td><strong th:text="${a.productCode} + ' / ' + ${a.product}"></strong><p><span th:text="${a.produceType}"></span> / <span th:text="${a.variety}"></span> / <span th:text="${a.grade}"></span></p></td>
@@ -34,7 +33,6 @@
   </section>
   <section class="panel" th:if="${detail.canReceive}">
     <h2>Finalize receipt</h2>
-    <p class="hint">One final receipt only. For every allocation, received + shortage + damaged must equal dispatched quantity. Shortage and damaged goods are permanent loss, not destination stock. Zero received is valid with a loss reason. No partial receipts, drafts or cancellations.</p>
     <form id="transfer-receive" class="editor" th:attr="data-transfer-id=${detail.transfer.id}">
       <fieldset th:each="a : ${detail.allocations}" class="transfer-arrival" th:attr="data-allocation-id=${a.id},data-quantity=${a.quantity}">
         <legend th:text="${a.product} + ' / ' + ${a.lotCode} + ' / ' + ${a.quantity} + ' ' + ${a.baseUnit}"></legend>
@@ -48,7 +46,6 @@
       <label>Receipt notes<textarea name="notes" maxlength="500"></textarea></label>
       <label class="check"><input type="checkbox" required> I have counted every allocation and confirm this receipt and permanent losses are final.</label>
       <button type="submit">Finalize arrival and losses</button>
-      <p class="hint">Retry unchanged details after a network failure. Check history before editing an uncertain receipt.</p>
     </form>
   </section>
 </main>

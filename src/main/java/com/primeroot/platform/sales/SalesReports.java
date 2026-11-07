@@ -42,6 +42,10 @@ public final class SalesReports {
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal grossProfit) {
 	}
 
+	public record QuantityTotal(String currency, String unit,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal quantity) {
+	}
+
 	public record Row(UUID saleId, String label, String detail, String currency, String unit,
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal quantity, long receipts, long voids,
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal revenue,

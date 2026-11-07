@@ -12,8 +12,7 @@
       <p th:if="${whatsapp.sender != null}">Linked WhatsApp number: <strong th:text="${'+' + whatsapp.sender}"></strong></p>
       <p th:if="${whatsapp.sender == null}">No WhatsApp account linked.</p>
       <p th:if="${whatsapp.reauthenticationRequired}" class="hint">Access expired or changed. Sign out, sign in again, and renew linking.</p>
-      <p>Link only your own WhatsApp account. Reports follow your current Keycloak permissions and local branch scope.
-        Sellers without SALES_VIEW receive only their own sales. This grants ongoing reporting access while your Keycloak session can be refreshed.</p>
+      <p>Link only your own number. Enables ongoing reporting within your authorized scope.</p>
       <div class="form-actions">
         <button type="button" id="whatsapp-create" th:if="${canSales}">Request link / renew access</button>
         <button type="button" id="whatsapp-unlink" class="secondary"
@@ -39,8 +38,7 @@
     <section class="panel">
       <h2>Supported prompts</h2>
       <p><code>What is the total amount sold today?</code>, <code>sales yesterday</code>, <code>sales this week</code>.</p>
-      <p>Dates use UTC, including backdated sale dates. Replies show currency-separated net sales, sales counts and refund counts;
-        net sales are not profit. No business records can be changed from WhatsApp.</p>
+      <p class="hint">Net sales, not profit. UTC dates. Read-only.</p>
     </section>
 </main>
 </body>

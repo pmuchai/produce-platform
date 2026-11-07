@@ -36,7 +36,11 @@ public final class SalesDtos {
 		LocalDate saleDate) {
 	}
 
-	public record Quote(String currency, @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal total) {
+	public record Quote(String currency, @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal total,
+		List<QuoteLine> lines) {
+	}
+
+	public record QuoteLine(@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal total) {
 	}
 
 	public record VoidRequest(@NotNull UUID requestId, @NotBlank @Size(max = 500) String reason,
@@ -47,7 +51,12 @@ public final class SalesDtos {
 	public record Option(UUID id, String label) {
 	}
 
-	public record Entry(UUID branchId, String branch, String currency, List<Option> products,
+	public record ProductOption(UUID id, String label, String name, String baseUnit, UUID baseUnitId,
+		UUID produceTypeId, String produceType,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal quantity) {
+	}
+
+	public record Entry(UUID branchId, String branch, String currency, List<ProductOption> products,
 		List<Option> units, List<String> customers) {
 	}
 

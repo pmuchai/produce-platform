@@ -52,7 +52,7 @@ public class SecurityConfiguration {
 				.requestMatchers(HttpMethod.GET, "/api/whatsapp/webhook").permitAll()
 				.requestMatchers(HttpMethod.POST, "/api/whatsapp/webhook").permitAll()
 				.requestMatchers(HttpMethod.GET, "/", "/login", "/access-pending", "/actuator/health", "/api/auth/csrf",
-					"/assets/app.css", "/assets/app.js", "/assets/prime-root-mark.svg",
+					"/assets/app.css", "/assets/app.js", "/assets/dashboard.js", "/assets/icons.svg", "/assets/prime-root-mark.svg",
 					"/assets/produce-distribution.svg").permitAll()
 				.requestMatchers("/oauth2/authorization/keycloak", "/login/oauth2/code/keycloak").permitAll()
 				.requestMatchers("/home", "/ui/**", "/api/**").authenticated()
