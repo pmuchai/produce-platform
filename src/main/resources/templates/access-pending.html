@@ -13,9 +13,10 @@
     <a class="brand" th:href="@{/}"><img class="brand-mark" th:src="@{/assets/prime-root-mark.svg}" width="44" height="44" alt="">Prime Root</a>
     <p class="eyebrow">YOUR FRESH PRODUCE DISTRIBUTION NETWORK</p>
     <h1>Awaiting administrator approval</h1>
-    <p>Your Keycloak identity has been verified and an access request has been sent to your administrator. You do not have access to business data yet.</p>
-    <p>Your administrator can approve the request under <strong>User management &gt; Staff &amp; branch assignments</strong> and assign your branch access. You do not need to copy your Keycloak user ID.</p>
-    <form th:action="@{/oauth2/authorization/keycloak}" method="get"><button type="submit">Check approval and sign in</button></form>
+    <form th:action="@{/oauth2/authorization/keycloak}" method="get">
+      <input type="hidden" name="prompt" value="login">
+      <button type="submit">Check approval and sign in</button>
+    </form>
   </section>
 </main>
 </body>
