@@ -10,12 +10,17 @@
       <p class="muted" th:text="${window.month == #strings.substring(today.toString(),0,7) ? 'Month to date' : 'Monthly overview'}"></p>
       <p th:if="${canSales and sales.ownSalesOnly}" class="scope-note">Your own sales only</p>
     </div>
-    <form method="get" th:action="@{/home}" id="dashboard-month-form" class="dashboard-filters" aria-describedby="period-description">
+    <form method="get" th:action="@{/home}" id="dashboard-month-form" class="dashboard-filters"
+      th:attr="data-interval-mode=${window.comparison == 'previous equal-length interval'}" aria-describedby="period-description">
       <div class="month-control">
         <svg th:replace="~{layout :: icon('calendar')}"></svg>
         <label class="sr-only" for="dashboard-month">Reporting month (UTC)</label>
-        <input type="month" name="month" id="dashboard-month" required min="1970-01"
+        <input type="month" th:attr="name=${window.comparison == 'previous equal-length interval' ? null : 'month'}" id="dashboard-month" required min="1970-01"
           th:max="${#strings.substring(today.toString(),0,7)}" th:value="${window.month}">
+        <input th:if="${window.comparison == 'previous equal-length interval'}" type="hidden" name="start"
+          th:value="${period.start}" data-interval-date>
+        <input th:if="${window.comparison == 'previous equal-length interval'}" type="hidden" name="end"
+          th:value="${period.end}" data-interval-date>
         <a th:if="${previousMonth != null}" th:href="@{/home(month=${previousMonth},currency=${overview.currency})}" aria-label="Previous month" title="Previous month"><svg th:replace="~{layout :: icon('left')}"></svg></a>
         <span th:unless="${previousMonth != null}" aria-disabled="true"><svg th:replace="~{layout :: icon('left')}"></svg></span>
         <a th:if="${nextMonth != null}" th:href="@{/home(month=${nextMonth},currency=${overview.currency})}" aria-label="Next month" title="Next month"><svg th:replace="~{layout :: icon('right')}"></svg></a>

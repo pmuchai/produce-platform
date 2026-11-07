@@ -110,7 +110,13 @@
   });
   const month = document.getElementById('dashboard-month');
   if (month) month.addEventListener('change', () => {
-    if (month.checkValidity()) month.form.requestSubmit();
+    if (month.checkValidity()) {
+      if (month.form.dataset.intervalMode === 'true') {
+        month.name = 'month';
+        month.form.querySelectorAll('[data-interval-date]').forEach(date => { date.disabled = true; });
+      }
+      month.form.requestSubmit();
+    }
   });
   const currency = document.getElementById('dashboard-currency');
   if (currency) currency.addEventListener('change', () => {

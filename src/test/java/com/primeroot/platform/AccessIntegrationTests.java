@@ -415,7 +415,10 @@ class AccessIntegrationTests extends OidcTestSupport {
 			var selected = admin.get("/home?start=" + start + "&end=" + today);
 			assertThat(selected.statusCode()).isEqualTo(200);
 			assertThat(selected.body()).contains("2 events", "+1 vs previous equal-length interval (1)",
-				"not historical balances", "Net sales", "Sales by salesperson");
+				"not historical balances", "Net sales", "Sales by salesperson", "data-interval-mode=\"true\"",
+				"name=\"start\"", "name=\"end\"", "value=\"" + start + "\" data-interval-date",
+				"value=\"" + today + "\" data-interval-date")
+				.doesNotContain("name=\"month\"", "name=\"\"");
 			var report = admin.get("/ui/reports?start=" + start + "&end=" + today);
 			assertThat(report.body()).contains("at-start", "at-end").doesNotContain(">previous<", ">excluded<");
 			assertThat(admin.get("/home").body()).contains("value=\"" + java.time.YearMonth.from(today) + "\"",
