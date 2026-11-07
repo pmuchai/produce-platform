@@ -72,9 +72,11 @@ class AccessIntegrationTests extends OidcTestSupport {
 			var grade = createCatalogue(admin, "classifications", Map.of("code", "tomato_a", "name", "Grade A",
 				"active", true, "produceTypeId", type, "kind", "GRADE"));
 			var product = createCatalogue(admin, "products", Map.of("code", "tomato_a_kg", "name", "Tomatoes Grade A",
-				"active", true, "produceTypeId", type, "gradeId", grade, "baseUnitId", unit("KG")));
+				"active", true, "produceTypeId", type, "baseUnitId", unit("KG")));
 			var snapshot = admin.body(admin.get("/api/catalogue"));
 			assertThat(snapshot.get("products").size()).isEqualTo(1);
+			assertThat(snapshot.get("products").get(0).has("gradeId")).isFalse();
+			assertThat(admin.get("/ui/catalogue").body()).doesNotContain("name=\"gradeId\"");
 			assertThat(snapshot.get("types").get(0).get("code").asText()).isEqualTo("TOMATO");
 			var grams = admin.mutate("POST", "/api/catalogue/convert", Map.of(
 				"productId", product, "fromUnitId", unit("G"), "quantity", "1250"));
@@ -279,8 +281,10 @@ class AccessIntegrationTests extends OidcTestSupport {
 			var onion = createCatalogue(admin, "types", Map.of("code", "onion", "name", "Onions", "active", true));
 			var grade = createCatalogue(admin, "classifications", Map.of("code", "onion_a", "name", "Grade A",
 				"active", true, "produceTypeId", onion, "kind", "GRADE"));
-			assertThat(admin.mutate("POST", "/api/catalogue/products", Map.of("code", "bad", "name", "Wrong grade",
-				"active", true, "produceTypeId", tomato, "gradeId", grade, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(400);
+			var variety = createCatalogue(admin, "classifications", Map.of("code", "onion_red", "name", "Red",
+				"active", true, "produceTypeId", onion, "kind", "VARIETY"));
+			assertThat(admin.mutate("POST", "/api/catalogue/products", Map.of("code", "bad", "name", "Wrong variety",
+				"active", true, "produceTypeId", tomato, "varietyId", variety, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(400);
 			assertThat(admin.mutate("POST", "/api/catalogue/products", Map.of("code", "bad", "name", "Wrong kind",
 				"active", true, "produceTypeId", onion, "varietyId", grade, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(400);
 			assertThat(admin.mutate("POST", "/api/catalogue/products", Map.of("code", "bad", "name", "Packaging base",
@@ -294,23 +298,23 @@ class AccessIntegrationTests extends OidcTestSupport {
 			assertThat(updateCatalogue(admin, "units", unit("KG"), Map.of("code", "KG", "name", "Kilogram",
 				"active", true, "dimension", "MASS", "baseFactor", 2)).statusCode()).isEqualTo(409);
 			var product = createCatalogue(admin, "products", Map.of("code", "onion_a_kg", "name", "Onions A",
-				"active", true, "produceTypeId", onion, "gradeId", grade, "baseUnitId", unit("KG")));
-			assertThat(updateCatalogue(admin, "classifications", grade, Map.of("code", "onion_a",
-				"name", "Grade A", "active", true, "produceTypeId", tomato, "kind", "GRADE")).statusCode()).isEqualTo(409);
+				"active", true, "produceTypeId", onion, "varietyId", variety, "baseUnitId", unit("KG")));
+			assertThat(updateCatalogue(admin, "classifications", variety, Map.of("code", "onion_red",
+				"name", "Red", "active", true, "produceTypeId", tomato, "kind", "VARIETY")).statusCode()).isEqualTo(409);
 			assertThat(updateCatalogue(admin, "types", onion, Map.of("code", "onion",
 				"name", "Onions", "active", false)).statusCode()).isEqualTo(409);
-			assertThat(updateCatalogue(admin, "classifications", grade, Map.of("code", "onion_a",
-				"name", "Grade A", "active", false, "produceTypeId", onion, "kind", "GRADE")).statusCode()).isEqualTo(409);
+			assertThat(updateCatalogue(admin, "classifications", variety, Map.of("code", "onion_red",
+				"name", "Red", "active", false, "produceTypeId", onion, "kind", "VARIETY")).statusCode()).isEqualTo(409);
 			assertThat(updateCatalogue(admin, "units", unit("KG"), Map.of("code", "KG", "name", "Kilogram",
 				"active", false, "dimension", "MASS", "baseFactor", 1)).statusCode()).isEqualTo(409);
 			assertThat(updateCatalogue(admin, "products", product, Map.of("code", "onion_a_kg", "name", "Onions A",
-				"active", true, "produceTypeId", onion, "gradeId", grade, "baseUnitId", unit("G"))).statusCode()).isEqualTo(409);
+				"active", true, "produceTypeId", onion, "varietyId", variety, "baseUnitId", unit("G"))).statusCode()).isEqualTo(409);
 			assertThat(updateCatalogue(admin, "products", product, Map.of("code", "onion_a_kg", "name", "Onions A",
-				"active", false, "produceTypeId", onion, "gradeId", grade, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(200);
-			assertThat(updateCatalogue(admin, "classifications", grade, Map.of("code", "onion_a",
-				"name", "Grade A", "active", false, "produceTypeId", onion, "kind", "GRADE")).statusCode()).isEqualTo(200);
+				"active", false, "produceTypeId", onion, "varietyId", variety, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(200);
+			assertThat(updateCatalogue(admin, "classifications", variety, Map.of("code", "onion_red",
+				"name", "Red", "active", false, "produceTypeId", onion, "kind", "VARIETY")).statusCode()).isEqualTo(200);
 			assertThat(updateCatalogue(admin, "products", product, Map.of("code", "onion_a_kg", "name", "Onions A",
-				"active", true, "produceTypeId", onion, "gradeId", grade, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(400);
+				"active", true, "produceTypeId", onion, "varietyId", variety, "baseUnitId", unit("KG"))).statusCode()).isEqualTo(400);
 			assertThat(updateCatalogue(admin, "units", unit("G"), Map.of("code", "G", "name", "Gram",
 				"active", true, "dimension", "MASS", "baseFactor", "0.001")).statusCode()).isEqualTo(200);
 			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM products", Integer.class)).isEqualTo(1);
@@ -535,7 +539,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 	void migrationsRetainExternalIdentitySchemaAndEnforceForeignKeys() {
 		assertThat(jdbc.queryForList(
 			"SELECT \"version\" FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", String.class))
-			.containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
+			.containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14");
 		assertThat(jdbc.queryForList(
 			"SELECT UPPER(table_name) FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA()", String.class))
 			.contains("BRANCHES", "STAFF_USERS", "USER_BRANCHES", "AUDIT_EVENTS", "STAFF_ACCESS_REQUESTS",

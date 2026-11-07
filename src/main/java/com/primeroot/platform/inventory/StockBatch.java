@@ -10,6 +10,7 @@ import java.util.Currency;
 import com.primeroot.platform.access.Branch;
 import com.primeroot.platform.catalogue.CatalogueQuantityService.Conversion;
 import com.primeroot.platform.catalogue.Product;
+import com.primeroot.platform.catalogue.ProductClassification;
 import com.primeroot.platform.catalogue.UnitOfMeasure;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -34,6 +35,9 @@ public class StockBatch {
 	private Branch branch;
 	@ManyToOne(optional = false)
 	private Product product;
+	@ManyToOne
+	@jakarta.persistence.JoinColumn(updatable = false)
+	private ProductClassification grade;
 	@Column(length = 120, updatable = false)
 	private String productNameSnapshot;
 	@Column(length = 32, updatable = false)
@@ -86,6 +90,7 @@ public class StockBatch {
 		sourceBatch = source;
 		branch = operation.getBranch();
 		product = source.product;
+		grade = source.grade;
 		productNameSnapshot = source.getProductNameSnapshot();
 		productCodeSnapshot = source.getProductCodeSnapshot();
 		produceTypeSnapshot = source.getProduceTypeSnapshot();
@@ -110,7 +115,7 @@ public class StockBatch {
 	}
 
 	StockBatch(StockOperation operation, InventoryDtos.ReceiptLine line, LocalDate receivedDate,
-			Conversion conversion, Currency currency) {
+			Conversion conversion, Currency currency, ProductClassification grade) {
 		this.operation = operation;
 		branch = operation.getBranch();
 		product = conversion.product();
@@ -118,7 +123,8 @@ public class StockBatch {
 		productCodeSnapshot = product.getCode();
 		produceTypeSnapshot = product.getProduceType().getName();
 		varietySnapshot = product.getVariety() == null ? null : product.getVariety().getName();
-		gradeSnapshot = product.getGrade() == null ? null : product.getGrade().getName();
+		this.grade = grade;
+		gradeSnapshot = grade == null ? null : grade.getName();
 		baseUnitSnapshot = product.getBaseUnit().getCode();
 		lotCode = line.lotCode().trim();
 		this.receivedDate = receivedDate;
@@ -152,6 +158,7 @@ public class StockBatch {
 	public StockBatch getSourceBatch() { return sourceBatch; }
 	public Branch getBranch() { return branch; }
 	public Product getProduct() { return product; }
+	public ProductClassification getGrade() { return grade; }
 	public String getProductNameSnapshot() { return productNameSnapshot == null ? product.getName() : productNameSnapshot; }
 	public String getProductCodeSnapshot() { return productCodeSnapshot == null ? product.getCode() : productCodeSnapshot; }
 	public String getProduceTypeSnapshot() { return produceTypeSnapshot == null ? product.getProduceType().getName() : produceTypeSnapshot; }

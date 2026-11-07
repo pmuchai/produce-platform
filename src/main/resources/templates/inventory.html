@@ -19,7 +19,9 @@
   </form>
   <section th:if="${page == 'receipts' and receiveStock}" class="panel">
     <h2>Receive stock</h2>
-    <p class="hint">Posting immediately creates stock. Use one receipt for up to 50 product lines.
+    <p class="hint">Posting immediately creates stock. Use one receipt for up to 50 product/grade lines.
+      Split a mixed-grade delivery into separate lines for the same product, choosing a grade and quantity on each line.
+      Lines can share the same lot / delivery reference; each creates its own traceable stock batch.
       For variable-weight packages, enter their actual total measured quantity in the product's base unit.
       Leave it blank only when using a defined fixed packaging conversion.
       Enter purchase cost per delivered unit, not per base unit unless those units are the same.
@@ -35,7 +37,9 @@
         <fieldset class="receipt-line editor">
           <legend>Product / batch</legend>
           <label>Product<select name="productId" required><option value="">Choose product</option>
-            <option th:each="product : ${inventory.products}" th:if="${product.active}" th:value="${product.id}" th:text="${product.name} + ' (' + ${product.baseUnit} + ')'"></option></select></label>
+            <option th:each="product : ${inventory.products}" th:if="${product.active}" th:value="${product.id}" th:attr="data-type=${product.produceTypeId}" th:text="${product.name} + ' (' + ${product.baseUnit} + ')'"></option></select></label>
+          <label>Grade (optional)<select name="gradeId"><option value="">Ungraded</option>
+            <option th:each="grade : ${inventory.grades}" th:value="${grade.id}" th:attr="data-type=${grade.produceTypeId}" th:text="${grade.name}" disabled hidden></option></select></label>
           <label>Delivered unit<select name="unitId" required><option value="">Choose unit</option>
             <option th:each="unit : ${inventory.units}" th:value="${unit.id}" th:text="${unit.code}"></option></select></label>
           <label>Delivered quantity<input name="quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
@@ -64,7 +68,7 @@
     <div th:replace="~{batch-controls :: filters}"></div>
     <div class="table-scroll"><table><thead><tr><th>Branch / product</th><th>Lot / received / expiry</th><th>Current base quantity</th><th>Receipt / conversion snapshot</th><th>Original receipt cost</th></tr></thead>
       <tbody><tr th:each="batch : ${batchPage.batches}">
-        <td><strong th:text="${batch.product}"></strong><small th:text="${batch.branch}"></small></td>
+        <td><strong th:text="${batch.product}"></strong><small th:text="${batch.grade == null ? 'Ungraded' : batch.grade}"></small><small th:text="${batch.branch}"></small></td>
         <td><span th:text="${batch.lotCode}"></span><small th:text="'Received ' + ${batch.receivedDate}"></small>
           <small th:text="${batch.expiryDate == null ? 'No expiry recorded' : 'Expiry / best-before ' + batch.expiryDate}"></small>
           <strong th:if="${batch.nearExpiry}" class="warning">Expired or due within seven days</strong></td>
@@ -85,7 +89,7 @@
     <form data-stock="spoilage" class="editor">
       <input name="branchId" type="hidden">
       <label>Batch<select name="batchId" data-batch-branch required><option value="">Choose batch</option>
-        <option th:each="batch : ${batchPage.batches}" th:if="${batch.quantity.signum() > 0}" th:value="${batch.id}" th:attr="data-branch=${batch.branchId}" th:text="${batch.branch} + ' / ' + ${batch.product} + ' / ' + ${batch.lotCode} + ' (' + ${batch.quantity} + ' ' + ${batch.baseUnit} + ')'"></option></select></label>
+        <option th:each="batch : ${batchPage.batches}" th:if="${batch.quantity.signum() > 0}" th:value="${batch.id}" th:attr="data-branch=${batch.branchId}" th:text="${batch.branch} + ' / ' + ${batch.product} + ' / ' + ${batch.grade == null ? 'Ungraded' : batch.grade} + ' / ' + ${batch.lotCode} + ' (' + ${batch.quantity} + ' ' + ${batch.baseUnit} + ')'"></option></select></label>
       <label>Quantity lost (base unit)<input name="quantity" type="number" min="0.000001" max="9999999999999.999999" step="0.000001" required></label>
       <label>Reason<input name="reason" required maxlength="500"></label>
       <div th:replace="~{layout :: saveButtons}"></div>
@@ -96,7 +100,7 @@
     <form data-stock="adjustments" class="editor">
       <input name="branchId" type="hidden">
       <label>Batch<select name="batchId" data-batch-branch required><option value="">Choose batch</option>
-        <option th:each="batch : ${batchPage.batches}" th:value="${batch.id}" th:attr="data-branch=${batch.branchId}" th:text="${batch.branch} + ' / ' + ${batch.product} + ' / ' + ${batch.lotCode} + ' (' + ${batch.baseUnit} + ')'"></option></select></label>
+        <option th:each="batch : ${batchPage.batches}" th:value="${batch.id}" th:attr="data-branch=${batch.branchId}" th:text="${batch.branch} + ' / ' + ${batch.product} + ' / ' + ${batch.grade == null ? 'Ungraded' : batch.grade} + ' / ' + ${batch.lotCode} + ' (' + ${batch.baseUnit} + ')'"></option></select></label>
       <label>Signed quantity (base unit)<input name="quantity" type="number" min="-9999999999999.999999" max="9999999999999.999999" step="0.000001" required></label>
       <label>Reason<input name="reason" required maxlength="500"></label>
       <div th:replace="~{layout :: saveButtons}"></div>
@@ -107,7 +111,7 @@
     <div class="table-scroll"><table><thead><tr><th>Posted (UTC) / actor</th><th>Branch / product / lot</th><th>Movement</th><th>Base quantity</th><th>Source / reason</th><th>Correction</th></tr></thead>
       <tbody><tr th:each="movement : ${inventory.movements}">
         <td><span th:text="${movement.postedAt}"></span><small th:text="${movement.actorId}"></small></td>
-        <td><span th:text="${movement.branch} + ' / ' + ${movement.product}"></span><small th:text="${movement.lotCode}"></small></td>
+        <td><span th:text="${movement.branch} + ' / ' + ${movement.product}"></span><small th:text="${movement.grade == null ? 'Ungraded' : movement.grade}"></small><small th:text="${movement.lotCode}"></small></td>
         <td><span th:text="${movement.kind}"></span><small th:if="${movement.reversalOf != null}" th:text="'Reversal of ' + ${movement.reversalOf}"></small></td>
         <td th:text="${movement.quantity} + ' ' + ${movement.baseUnit}"></td>
         <td><span th:text="${movement.source}"></span><small th:text="${movement.notes}"></small></td>

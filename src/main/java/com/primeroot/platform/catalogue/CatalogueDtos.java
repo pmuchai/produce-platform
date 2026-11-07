@@ -37,7 +37,7 @@ public final class CatalogueDtos {
 	public record ProductRequest(
 		@NotBlank @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9_-]{0,31}") String code,
 		@NotBlank @Size(max = 120) String name, @NotNull Boolean active,
-		@NotNull UUID produceTypeId, UUID varietyId, UUID gradeId, @NotNull UUID baseUnitId) {
+		@NotNull UUID produceTypeId, UUID varietyId, @NotNull UUID baseUnitId) {
 	}
 
 	public record PackagingRequest(@NotNull UUID productId, @NotNull UUID unitId,
@@ -72,11 +72,11 @@ public final class CatalogueDtos {
 	}
 
 	public record ProductResponse(UUID id, String code, String name, boolean active,
-			UUID produceTypeId, UUID varietyId, UUID gradeId, UUID baseUnitId, long version) {
+			UUID produceTypeId, UUID varietyId, UUID baseUnitId, long version) {
 		static ProductResponse from(Product item) {
 			return new ProductResponse(item.getId(), item.getCode(), item.getName(), item.isActive(),
 				item.getProduceType().getId(), item.getVariety() == null ? null : item.getVariety().getId(),
-				item.getGrade() == null ? null : item.getGrade().getId(), item.getBaseUnit().getId(),
+				item.getBaseUnit().getId(),
 				item.getVersion());
 		}
 	}

@@ -22,6 +22,8 @@ import com.primeroot.platform.access.Permission;
 import com.primeroot.platform.audit.AuditEvent;
 import com.primeroot.platform.audit.AuditRepository;
 import com.primeroot.platform.catalogue.CatalogueQuantityService;
+import com.primeroot.platform.catalogue.ClassificationRepository;
+import com.primeroot.platform.catalogue.ProductClassification;
 import com.primeroot.platform.catalogue.Product;
 import com.primeroot.platform.catalogue.ProductRepository;
 import com.primeroot.platform.catalogue.UnitOfMeasure;
@@ -60,6 +62,7 @@ public class InventoryService {
 	private final BranchRepository branches;
 	private final ProductRepository products;
 	private final UnitRepository units;
+	private final ClassificationRepository classifications;
 	private final CatalogueQuantityService quantities;
 	private final StockOperationRepository operations;
 	private final StockBatchRepository batches;
@@ -70,7 +73,7 @@ public class InventoryService {
 	private final Currency businessCurrency;
 
 	public InventoryService(AccessService access, BranchRepository branches, ProductRepository products,
-			UnitRepository units, CatalogueQuantityService quantities, StockOperationRepository operations,
+			UnitRepository units, ClassificationRepository classifications, CatalogueQuantityService quantities, StockOperationRepository operations,
 			StockBatchRepository batches, StockMovementRepository movements,
 			StockThresholdRepository thresholds, AuditRepository audit, JsonMapper json,
 			@Value("${platform.inventory.currency}") String currency) {
@@ -78,6 +81,7 @@ public class InventoryService {
 		this.branches = branches;
 		this.products = products;
 		this.units = units;
+		this.classifications = classifications;
 		this.quantities = quantities;
 		this.operations = operations;
 		this.batches = batches;
@@ -103,6 +107,10 @@ public class InventoryService {
 		if (request.receivedDate().isBefore(LocalDate.of(1970, 1, 1)) || request.receivedDate().isAfter(today)) {
 			throw invalid("Received date must be between 1970-01-01 and today in UTC");
 		}
+		var grades = new HashMap<UUID, ProductClassification>();
+		request.lines().stream().map(InventoryDtos.ReceiptLine::gradeId).filter(id -> id != null).distinct().sorted()
+			.forEach(id -> grades.put(id, classifications.findByIdForUpdate(id)
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Grade not found"))));
 		var operation = operations.saveAndFlush(new StockOperation(request.requestId(), branch, actor.getId(),
 			Kind.RECEIPT, hash, request.source().trim(), request.notes()));
 		for (var line : request.lines()) {
@@ -111,7 +119,14 @@ public class InventoryService {
 				throw invalid("Expiry/best-before date must be on or after receipt and no later than 9999-12-31");
 			}
 			var conversion = quantities.resolve(line.productId(), line.unitId(), line.quantity(), line.measuredBaseQuantity());
-			var batch = batches.save(new StockBatch(operation, line, request.receivedDate(), conversion, businessCurrency));
+			ProductClassification grade = grades.get(line.gradeId());
+			if (line.gradeId() != null) {
+				if (!grade.isActive() || grade.getKind() != ProductClassification.Kind.GRADE
+						|| !grade.getProduceType().getId().equals(conversion.product().getProduceType().getId())) {
+					throw invalid("Choose an active grade belonging to the product's produce type");
+				}
+			}
+			var batch = batches.save(new StockBatch(operation, line, request.receivedDate(), conversion, businessCurrency, grade));
 			movements.save(new StockMovement(operation, batch, Kind.RECEIPT, conversion.quantity(), null));
 		}
 		record(operation);
@@ -262,13 +277,17 @@ public class InventoryService {
 			: movements.history(ids, period.from(), period.until(), PageRequest.of(page, 100));
 		return new Snapshot(visible.stream().map(branch -> new BranchOption(branch.getId(), branch.getName(), branch.isActive())).toList(),
 			productEntities.stream().map(product -> new ProductOption(product.getId(), product.getCode(),
-				product.getName(), product.getBaseUnit().getCode(), product.isActive())).toList(),
+				product.getName(), product.getBaseUnit().getCode(), product.isActive(), product.getProduceType().getId())).toList(),
 			units.findAllByOrderByCode().stream().filter(UnitOfMeasure::isActive)
 				.map(unit -> new UnitOption(unit.getId(), unit.getCode())).toList(),
 			balances, movementResponses(history.getContent()), history.getTotalElements(), page,
 			ids.isEmpty() ? 0 : batches.lowStockCount(ids),
 			ids.isEmpty() ? 0 : batches.nearExpiryCount(ids, today.plusDays(7)),
-			businessCurrency.getCurrencyCode());
+			businessCurrency.getCurrencyCode(),
+			classifications.findAllByOrderByCode().stream()
+				.filter(grade -> grade.isActive() && grade.getKind() == ProductClassification.Kind.GRADE
+					&& grade.getProduceType().isActive())
+				.map(grade -> new InventoryDtos.GradeOption(grade.getId(), grade.getName(), grade.getProduceType().getId())).toList());
 	}
 
 	public BatchPage batchPage(UUID branchId, String search, int page) {

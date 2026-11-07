@@ -40,6 +40,105 @@ class InventoryIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void oneDeliveryCanReceiveDistinctGradesOfTheSameProductAndLotWithoutChangingHistoricGrades() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var product = product(admin);
+			var type = jdbc.queryForObject("SELECT produce_type_id FROM products WHERE id = ?", UUID.class, UUID.fromString(product)).toString();
+			var small = grade(admin, type, "SMALL", "Small", "GRADE", true);
+			var medium = grade(admin, type, "MEDIUM", "Medium", "GRADE", true);
+			var large = grade(admin, type, "LARGE", "Large", "GRADE", true);
+			var first = new java.util.HashMap<>(line(product, "KG", "10", "DELIVERY-1"));
+			first.put("gradeId", small);
+			var second = new java.util.HashMap<>(line(product, "KG", "20", "DELIVERY-1"));
+			second.put("gradeId", medium);
+			var third = new java.util.HashMap<>(line(product, "KG", "30", "DELIVERY-1"));
+			third.put("gradeId", large);
+			var request = receipt(branch, List.of(first, second, third));
+			var response = admin.mutate("POST", "/api/inventory/receipts", request);
+			assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(201);
+			var posted = admin.body(response);
+			assertThat(posted.get("movements").size()).isEqualTo(3);
+			var ids = new java.util.HashSet<String>();
+			for (var movement : posted.get("movements")) ids.add(movement.get("batchId").asText());
+			assertThat(ids).hasSize(3);
+			assertThat(posted.toString()).contains("\"grade\":\"Small\"", "\"grade\":\"Medium\"", "\"grade\":\"Large\"");
+			assertThat(count("stock_operations")).isEqualTo(1);
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", request).statusCode()).isEqualTo(201);
+			first.put("gradeId", large);
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", request).statusCode()).isEqualTo(409);
+			var batches = admin.body(admin.get("/api/inventory/batches?search=small")).get("batches");
+			assertThat(batches.size()).isEqualTo(1);
+			var batch = batches.get(0);
+			assertThat(batch.get("grade").asText()).isEqualTo("Small");
+			assertThat(batch.get("gradeId").asText()).isEqualTo(small);
+			assertThat(batch.get("lotCode").asText()).isEqualTo("DELIVERY-1");
+			assertThat(batch.get("quantity").asText()).isEqualTo("10.000000");
+			assertThat(admin.body(admin.get("/api/inventory")).get("balances").get(0).get("current").asText()).isEqualTo("60.000000");
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/catalogue/classifications/" + small, Map.of("code", "SMALL",
+				"name", "Renamed small", "active", false, "produceTypeId", type, "kind", "GRADE"), "\"0\"").statusCode()).isEqualTo(200);
+			assertThat(admin.body(admin.get("/api/inventory/batches?search=small")).get("batches").get(0).get("grade").asText()).isEqualTo("Small");
+			assertThat(admin.mutateWithIfMatch("PUT", "/api/catalogue/classifications/" + small, Map.of("code", "SMALL",
+				"name", "Renamed small", "active", false, "produceTypeId", type, "kind", "VARIETY"), "\"1\"").statusCode()).isEqualTo(409);
+			var ui = admin.get("/ui/stock?batchSearch=Small").body();
+			assertThat(ui).contains(" / Small / DELIVERY-1", "Small");
+			assertThat(admin.mutate("POST", "/api/inventory/spoilage",
+				change(branch, batch.get("id").asText(), "1", "Small-grade damage")).statusCode()).isEqualTo(200);
+			assertThat(admin.body(admin.get("/api/inventory/batches?search=medium")).get("batches").get(0).get("quantity").asText()).isEqualTo("20.000000");
+			assertLedgerMatchesBatches();
+		}
+	}
+
+	@Test
+	void invalidReceivingGradesRollBackTheWholeDeliveryAndOmittingGradeRetainsLegacyRetryHashes() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var product = product(admin);
+			var type = jdbc.queryForObject("SELECT produce_type_id FROM products WHERE id = ?", UUID.class, UUID.fromString(product)).toString();
+			var otherType = admin.body(admin.mutate("POST", "/api/catalogue/types", Map.of("code", "OTHER", "name", "Other", "active", true))).get("id").asText();
+			var wrongType = grade(admin, otherType, "OTHER_SMALL", "Other small", "GRADE", true);
+			var variety = grade(admin, type, "VARIETY", "Variety", "VARIETY", true);
+			var inactive = grade(admin, type, "INACTIVE", "Inactive grade", "GRADE", false);
+			for (var grade : List.of(wrongType, variety, inactive, UUID.randomUUID().toString())) {
+				var invalid = new java.util.HashMap<>(line(product, "KG", "1", "BAD"));
+				invalid.put("gradeId", grade);
+				assertThat(admin.mutate("POST", "/api/inventory/receipts",
+					receipt(branch, List.of(line(product, "KG", "1", "GOOD"), invalid))).statusCode())
+					.isEqualTo(grade.equals(wrongType) || grade.equals(variety) || grade.equals(inactive) ? 400 : 404);
+				assertThat(count("stock_operations")).isZero();
+				assertThat(count("stock_batches")).isZero();
+				assertThat(count("stock_movements")).isZero();
+			}
+			var request = receipt(branch, List.of(line(product, "KG", "1", "UNGRADED")));
+			var posted = admin.body(admin.mutate("POST", "/api/inventory/receipts", request));
+			record LegacyLine(UUID productId, UUID unitId, BigDecimal quantity, BigDecimal purchaseUnitCost,
+				BigDecimal measuredBaseQuantity, String lotCode, LocalDate expiryDate) {}
+			record LegacyReceipt(UUID requestId, UUID branchId, LocalDate receivedDate, String source, String currency,
+				String notes, List<LegacyLine> lines) {}
+			var typed = json.readValue(json.writeValueAsString(request), com.primeroot.platform.inventory.InventoryDtos.ReceiptRequest.class);
+			var legacyLines = typed.lines().stream().map(line -> new LegacyLine(line.productId(), line.unitId(), line.quantity(),
+				line.purchaseUnitCost(), line.measuredBaseQuantity(), line.lotCode(), line.expiryDate())).toList();
+			var legacy = new LegacyReceipt(typed.requestId(), typed.branchId(), typed.receivedDate(), typed.source(), typed.currency(), typed.notes(), legacyLines);
+			var actor = jdbc.queryForObject("SELECT actor_id FROM stock_operations WHERE id = ?", UUID.class, typed.requestId());
+			var legacyHash = com.primeroot.platform.inventory.PostingFingerprint.of(json,
+				com.primeroot.platform.inventory.StockOperation.Kind.RECEIPT, actor, legacy);
+			assertThat(jdbc.queryForObject("SELECT request_hash FROM stock_operations WHERE id = ?", String.class, typed.requestId())).isEqualTo(legacyHash);
+			assertThat(posted.get("movements").get(0).get("grade").isNull()).isTrue();
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", request).statusCode()).isEqualTo(201);
+			assertThat(admin.get("/ui/stock-entries").body()).contains("Ungraded");
+		}
+	}
+
+	private String grade(Browser admin, String type, String code, String name, String kind, boolean active) throws Exception {
+		var response = admin.mutate("POST", "/api/catalogue/classifications",
+			Map.of("code", code, "name", name, "active", active, "produceTypeId", type, "kind", kind));
+		assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(201);
+		return admin.body(response).get("id").asText();
+	}
+
+	@Test
 	void receiptCostsUseDeliveredUnitsAndPersistRoundedBatchTotalsWithoutRepricingStock() throws Exception {
 		try (var admin = browser()) {
 			admin.adminLogin();

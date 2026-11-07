@@ -13,6 +13,63 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class InventoryMigrationTests {
 	@Test
+	void receiptGradeUpgradePreservesHistoricSnapshotsWithoutInventingGradeIdentityOrChangingBalances() throws Exception {
+		try (var keeper = DriverManager.getConnection(
+				"jdbc:h2:mem:receipt-grades-upgrade-" + UUID.randomUUID() + ";MODE=PostgreSQL", "sa", "")) {
+			var source = new SingleConnectionDataSource(keeper, true);
+			Flyway.configure().dataSource(source).target("12").load().migrate();
+			var jdbc = new JdbcTemplate(source);
+			var branch = UUID.randomUUID();
+			var actor = UUID.randomUUID();
+			var type = UUID.randomUUID();
+			var product = UUID.randomUUID();
+			var grade = UUID.randomUUID();
+			var receipt = UUID.randomUUID();
+			jdbc.update("INSERT INTO branches(id, code, name, active, created_at) VALUES (?, 'MAIN', 'Main', TRUE, CURRENT_TIMESTAMP)", branch);
+			jdbc.update("""
+				INSERT INTO staff_users(id, username, full_name, issuer, subject, active, all_branches, created_at)
+				VALUES (?, 'admin', 'Admin', 'https://identity.example.test', 'existing-subject', TRUE, TRUE, CURRENT_TIMESTAMP)
+				""", actor);
+			jdbc.update("INSERT INTO produce_types(id, code, name, active, created_at) VALUES (?, 'ONION', 'Onions', TRUE, CURRENT_TIMESTAMP)", type);
+			jdbc.update("""
+				INSERT INTO product_classifications(id, code, name, active, created_at, produce_type_id, kind)
+				VALUES (?, 'SMALL', 'Small', TRUE, CURRENT_TIMESTAMP, ?, 'GRADE')
+				""", grade, type);
+			jdbc.update("""
+				INSERT INTO products(id, code, name, active, created_at, produce_type_id, grade_id, base_unit_id)
+				VALUES (?, 'LOCAL_RED', 'Local red onions', TRUE, CURRENT_TIMESTAMP, ?, ?, '10000000-0000-0000-0000-000000000001')
+				""", product, type, grade);
+			jdbc.update("""
+				INSERT INTO stock_operations(id, branch_id, actor_id, kind, request_hash, posted_at)
+				VALUES (?, ?, ?, 'RECEIPT', 'legacy', CURRENT_TIMESTAMP)
+				""", receipt, branch, actor);
+			for (var snapshot : java.util.List.of("Small", "Historical large")) {
+				var batch = UUID.randomUUID();
+				jdbc.update("""
+					INSERT INTO stock_batches(id, operation_id, branch_id, product_id, lot_code, received_date,
+						input_unit_id, input_quantity, received_quantity, conversion_numerator, conversion_denominator,
+						measured, quantity, created_at, currency, purchase_unit_cost, received_cost, remaining_cost, grade_snapshot)
+					VALUES (?, ?, ?, ?, 'SHARED-LOT', CURRENT_DATE, '10000000-0000-0000-0000-000000000001',
+						10, 10, 1, 1, FALSE, 10, CURRENT_TIMESTAMP, 'KES', 2, 20, 20, ?)
+					""", batch, receipt, branch, product, snapshot);
+				jdbc.update("INSERT INTO stock_movements(id, operation_id, batch_id, kind, quantity, cost_change) VALUES (?, ?, ?, 'RECEIPT', 10, 20)",
+					UUID.randomUUID(), receipt, batch);
+			}
+			Flyway.configure().dataSource(source).load().migrate();
+			assertThat(jdbc.queryForObject("SELECT grade_id FROM stock_batches WHERE grade_snapshot = 'Small'", UUID.class)).isEqualTo(grade);
+			assertThat(jdbc.queryForObject("SELECT grade_id FROM stock_batches WHERE grade_snapshot = 'Historical large'", UUID.class)).isNull();
+			assertThat(jdbc.queryForList("SELECT grade_snapshot FROM stock_batches ORDER BY grade_snapshot", String.class))
+				.containsExactly("Historical large", "Small");
+			assertThat(jdbc.queryForObject("SELECT SUM(quantity) FROM stock_batches", java.math.BigDecimal.class)).isEqualByComparingTo("20");
+			assertThat(jdbc.queryForObject("SELECT SUM(remaining_cost) FROM stock_batches", java.math.BigDecimal.class)).isEqualByComparingTo("40");
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_movements", Integer.class)).isEqualTo(2);
+			assertThat(jdbc.queryForObject("""
+				SELECT COUNT(*) FROM information_schema.columns WHERE LOWER(table_name) = 'products' AND LOWER(column_name) = 'grade_id'
+				""", Integer.class)).isZero();
+		}
+	}
+
+	@Test
 	void v8PreservesExistingLedgerAndEnforcesTransferRouteStateAndFinalAccounting() throws Exception {
 		try (var keeper = DriverManager.getConnection(
 				"jdbc:h2:mem:transfer-upgrade-" + UUID.randomUUID() + ";MODE=PostgreSQL", "sa", "")) {

@@ -745,8 +745,8 @@ required for mutations; tables remain readable without it.
 | Definition | Rules |
 | --- | --- |
 | Produce type | Configurable code/name; no hard-coded produce enum |
-| Variety / grade | Configurable within one produce type; a product must reference the correct kind and matching type |
-| Product | Unique normalized code, name, type, optional variety/grade and immutable base stock unit |
+| Variety / grade | Configurable within one produce type; products select varieties, receiving lines select grades of the matching type |
+| Product | Unique normalized code, name, type, optional variety and immutable base stock unit; no product-level grade |
 | Mass unit | Factor relative to kilograms; KG = 1 and G = 0.001 |
 | Count unit | Factor relative to pieces; PIECE = 1 |
 | Packaging unit | No universal mass/count factor; CRATE and BAG are seeded without assumed weight |
@@ -763,9 +763,11 @@ and rounds half up to six decimal places. It does not record a stock movement.
 Updating a packaging definition changes future calculations; inventory
 transactions must snapshot their applied conversion when that module is built.
 
-Active definitions require active dependencies. A type, variety, grade or unit
+Active definitions require active dependencies. A type, variety or unit
 in use by active dependants cannot be deactivated until those dependants are
-deactivated. Classifications referenced by products cannot change kind/type.
+deactivated. Classifications referenced by products or received stock cannot
+change kind/type. A grade can be deactivated to stop future receiving without
+stranding stock already received; historical grade text remains unchanged.
 Catalogue changes and their audit events commit together. No delete endpoints
 are provided. The shared catalogue is business-wide; reading it does not grant
 access to any branch's stock or sales.
@@ -777,7 +779,7 @@ access to any branch's stock or sales.
 | PUT | `/api/catalogue/types/{id}` | Update a produce type |
 | POST / PUT | `/api/catalogue/classifications` / `/{id}` | Code, name, active, `produceTypeId`, `kind` (`VARIETY` or `GRADE`) |
 | POST / PUT | `/api/catalogue/units` / `/{id}` | Code, name, active, `dimension` (`MASS`, `COUNT`, `PACKAGING`), `baseFactor` (null for packaging) |
-| POST / PUT | `/api/catalogue/products` / `/{id}` | Code, name, active, `produceTypeId`, optional `varietyId`/`gradeId`, `baseUnitId` |
+| POST / PUT | `/api/catalogue/products` / `/{id}` | Code, name, active, `produceTypeId`, optional `varietyId`, `baseUnitId` |
 | PUT | `/api/catalogue/packaging` | Upsert `productId`, `unitId`, `quantityInBaseUnit` |
 | POST | `/api/catalogue/convert` | Calculate `quantity` from `fromUnitId` for `productId`; requires view permission and CSRF |
 
@@ -817,7 +819,7 @@ balances, receipt/spoilage interval comparisons, batch costs and expiry alerts.
 **Stock movements** (`/ui/reports/stock-movements`) provides date/branch-filtered,
 paginated movement history without posting or reversal controls.
 Both require `STOCK_VIEW` and enforce the same branch scope as inventory.
-Batch details are searched by lot/product and paginated separately, with at most
+Batch details are searched by lot/product/grade and paginated separately, with at most
 100 batches per page. Stock Movement's **Find a batch** controls also determine
 the batches available in its spoilage/correction pickers.
 **Audit activity** (`/ui/reports/audit`) separately requires `AUDIT_VIEW` and
@@ -831,6 +833,27 @@ mutation forms, even for administrators.
   date, source/delivery reference, optional notes and 1–50 product lines.
   Every line creates its own batch with a lot reference and optional
   expiry/best-before date. Reusing a lot label does not merge separate deliveries.
+- Grades are selected per receiving line, not when creating a product.
+  Define one product such as **Local red onions**, and grades such as **Small**,
+  **Medium** and **Large** under its produce type. Split a delivery into three
+  lines with that same product and lot reference, choosing each grade with its
+  own delivered quantity, unit and purchase cost. The optional receipt-line
+  `gradeId` must identify an active `GRADE` of the product's produce type;
+  omission means **Ungraded**, with no implicit product default.
+  One receipt ID groups the delivery; each line has a distinct stock batch.
+  Stock batch lists, searches, movement history and correction/spoilage pickers
+  show the immutable received grade. Transfers retain it across branches even
+  after the catalogue grade is renamed or deactivated.
+  Product balances, low-stock thresholds, sales and FEFO selection remain
+  product-level across grades; this change does not introduce grade-specific
+  sales pricing or grade-specific allocation.
+- V14 moves legacy product grade associations to stock where the saved grade
+  name still matches that association, then removes the product grade column.
+  Existing stock and transfer grade snapshots remain untouched; unmatched
+  historical names are retained without guessing a classification identity.
+  Existing product definitions are not merged or renamed automatically.
+  V13 adds WhatsApp reporting; Flyway applies V13 before V14 when upgrading
+  from V12, or applies V14 alone to an existing V13 deployment.
 - Select a mass/count unit compatible with the product, a defined fixed
   packaging conversion, or enter the **actual total measured base quantity**
   for variable-weight packaging. That last value is the total for the line,

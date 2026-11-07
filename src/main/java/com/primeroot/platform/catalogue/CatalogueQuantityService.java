@@ -29,7 +29,7 @@ public class CatalogueQuantityService {
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unit not found"));
 		var base = product.getBaseUnit();
 		for (var item : new CatalogueItem[] {product, product.getProduceType(), product.getVariety(),
-				product.getGrade(), base, unit}) {
+				base, unit}) {
 			if (item != null && !item.isActive()) {
 				throw invalid("Receiving and conversions require active catalogue definitions");
 			}

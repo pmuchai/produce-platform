@@ -13,6 +13,9 @@ public interface ClassificationRepository extends JpaRepository<ProductClassific
 	List<ProductClassification> findAllByOrderByCode();
 	boolean existsByProduceTypeIdAndActiveTrue(UUID id);
 
+	@Query(value = "SELECT COUNT(*) > 0 FROM stock_batches WHERE grade_id = :id", nativeQuery = true)
+	boolean existsAsReceivedGrade(@Param("id") UUID id);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select item from ProductClassification item where item.id = :id")
 	Optional<ProductClassification> findByIdForUpdate(@Param("id") UUID id);

@@ -443,6 +443,20 @@
       }
     });
   });
+  const updateReceiptGrades = line => {
+    const type = line.querySelector('[name="productId"]').selectedOptions[0]?.dataset.type;
+    const select = line.querySelector('[name="gradeId"]');
+    [...select.options].forEach(option => {
+      const allowed = !option.value || (type && option.dataset.type === type);
+      option.disabled = !allowed;
+      option.hidden = !allowed;
+    });
+    if (select.selectedOptions[0]?.disabled) select.value = '';
+  };
+  receiptLines?.querySelectorAll('.receipt-line').forEach(updateReceiptGrades);
+  receiptLines?.addEventListener('change', event => {
+    if (event.target.name === 'productId') updateReceiptGrades(event.target.closest('.receipt-line'));
+  });
   document.getElementById('add-receipt-line')?.addEventListener('click', () => {
     if (receiptLines.children.length >= 50) {
       showNotice('A receipt can contain at most 50 product lines.', true);
@@ -450,6 +464,7 @@
     }
     const line = receiptLines.firstElementChild.cloneNode(true);
     line.querySelectorAll('input, select').forEach(field => { field.value = ''; });
+    updateReceiptGrades(line);
     receiptLines.append(line);
   });
   receiptLines?.addEventListener('click', event => {
@@ -516,6 +531,7 @@
       }
       if (form.dataset.stock === 'receipts') {
         while (receiptLines.children.length > 1) receiptLines.lastElementChild.remove();
+        setTimeout(() => receiptLines.querySelectorAll('.receipt-line').forEach(updateReceiptGrades), 0);
       }
     });
   });
