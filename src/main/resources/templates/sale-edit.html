@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Edit sale')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace">
+  <header th:replace="~{layout :: header('Edit sale', '')}"></header>
+  <form id="sale-week-filter" method="get" th:action="@{/ui/sales/edit}" class="date-filter panel">
+    <label>Week of (UTC)<input name="week" type="date" min="1970-01-01" th:max="${today}" th:value="${editing.start}" required></label>
+    <label>Branch<select name="branchId"><option value="">All accessible branches</option>
+      <option th:each="branch : ${editing.branches}" th:value="${branch.id}" th:selected="${selectedBranch == branch.id}" th:text="${branch.label}"></option>
+    </select></label>
+    <button type="submit">Apply week</button>
+    <a th:href="@{/ui/sales/edit(branchId=${selectedBranch})}">Current week</a>
+  </form>
+  <section class="panel">
+    <div class="panel-heading"><h2 th:text="${editing.start} + ' to ' + ${editing.end}"></h2>
+      <span th:text="${editing.totalElements} + ' sales'"></span></div>
+    <div class="table-wrap"><table id="editable-sales">
+      <thead><tr><th>Receipt</th><th>Sale date (UTC)</th><th>Branch</th><th>Salesperson</th><th>Customer</th><th>Total</th><th>Status</th><th></th></tr></thead>
+      <tbody><tr th:each="sale : ${editing.sales}">
+        <td><a th:href="@{/ui/sales/{id}(id=${sale.id})}" th:text="${sale.receiptNumber}"></a></td>
+        <td th:text="${sale.saleDate}"></td><td th:text="${sale.branch}"></td><td th:text="${sale.seller}"></td>
+        <td th:text="${sale.customer}"></td><td th:text="${sale.currency} + ' ' + ${sale.total}"></td>
+        <td th:text="${sale.status}"></td>
+        <td><a th:if="${sale.status == 'PAID'}" th:href="@{/ui/sales/{id}(id=${sale.id})} + '#date-correction'">Correct date</a></td>
+      </tr><tr th:if="${editing.sales.isEmpty()}"><td colspan="8">No sales in this week.</td></tr></tbody>
+    </table></div>
+    <nav class="pagination" aria-label="Sales pages">
+      <a th:if="${editing.page > 0}" th:href="@{/ui/sales/edit(week=${editing.start},branchId=${selectedBranch},page=${editing.page - 1})}">Previous</a>
+      <span th:text="'Page ' + ${editing.page + 1}"></span>
+      <a th:if="${(editing.page + 1) * 100 < editing.totalElements}" th:href="@{/ui/sales/edit(week=${editing.start},branchId=${selectedBranch},page=${editing.page + 1})}">Next</a>
+    </nav>
+  </section>
+</main>
+</body>
+</html>

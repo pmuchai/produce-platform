@@ -485,6 +485,41 @@
   };
   document.getElementById('quote-sale')?.addEventListener('click', quoteSale);
   document.getElementById('print-receipt')?.addEventListener('click', () => window.print());
+  const saleDateForm = document.getElementById('sale-date-form');
+  if (saleDateForm) {
+    if (window.location.hash === '#date-correction') saleDateForm.closest('details').open = true;
+    let identity;
+    let requestId;
+    saleDateForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const data = {saleDate: saleDateForm.elements.saleDate.value,
+        expectedVersion: Number(saleDateForm.elements.expectedVersion.value),
+        reason: saleDateForm.elements.reason.value.trim()};
+      const submit = saleDateForm.querySelector('[type="submit"]');
+      const message = saleDateForm.querySelector('.form-message');
+      try {
+        const nextIdentity = JSON.stringify(data);
+        if (identity !== nextIdentity) {
+          requestId = newRequestId();
+          identity = nextIdentity;
+        }
+        submit.disabled = true;
+        message.className = 'form-message';
+        message.textContent = 'Saving...';
+        const receipt = await request(`api/sales/${encodeURIComponent(saleDateForm.dataset.saleId)}/date`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({...data, requestId})
+        });
+        window.location.assign(base + `ui/sales/${encodeURIComponent(receipt.id)}`);
+      } catch (error) {
+        message.className = 'form-message error';
+        message.textContent = error instanceof TypeError
+          ? 'Network error. Retry unchanged to check whether the correction saved.' : error.message;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  }
   [saleForm, document.getElementById('sale-void-form')].filter(Boolean).forEach(form => {
     form.addEventListener('submit', async event => {
       event.preventDefault();
@@ -602,8 +637,9 @@
     });
     search.addEventListener('input', filterProducts);
     cards.forEach(card => {
-      const name = `${card.dataset.name} ${card.dataset.category}`.toLowerCase();
-      const artwork = ['onion', 'tomato', 'potato', 'cabbage', 'carrot'].find(type => name.includes(type));
+      const name = `${card.dataset.name} ${card.dataset.category}`.toLowerCase().replace(/\s+/g, '');
+      const artwork = ['onion', 'tomato', 'potato', 'cabbage', 'carrot', 'watermelon', 'capsicum', 'butternut']
+        .find(type => name.includes(type));
       if (artwork) {
         const use = card.querySelector('.product-art use');
         use.setAttribute('href', `${use.getAttribute('href').split('#')[0]}#produce-${artwork}`);

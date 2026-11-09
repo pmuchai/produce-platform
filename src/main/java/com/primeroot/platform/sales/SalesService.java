@@ -24,6 +24,7 @@ import com.primeroot.platform.inventory.PostingFingerprint;
 import com.primeroot.platform.inventory.SaleStockLedger;
 import com.primeroot.platform.inventory.StockOperation;
 import com.primeroot.platform.inventory.StockOperationRepository;
+import com.primeroot.platform.ui.DashboardPeriod;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -47,6 +48,7 @@ public class SalesService {
 	private final SaleRepository sales;
 	private final SaleLineRepository lines;
 	private final SaleAllocationRepository allocations;
+	private final SaleDateCorrectionRepository dateCorrections;
 	private final AuditRepository audit;
 	private final JsonMapper json;
 	private final Currency currency;
@@ -55,6 +57,7 @@ public class SalesService {
 			CatalogueQuantityService quantities, StockOperationRepository operations, SaleStockLedger ledger,
 			SaleRepository sales, SaleLineRepository lines, SaleAllocationRepository allocations, AuditRepository audit,
 			JsonMapper json, com.primeroot.platform.inventory.StockBatchRepository batches,
+			SaleDateCorrectionRepository dateCorrections,
 			@Value("${platform.inventory.currency}") String currency) {
 		this.access = access;
 		this.branches = branches;
@@ -67,6 +70,7 @@ public class SalesService {
 		this.sales = sales;
 		this.lines = lines;
 		this.allocations = allocations;
+		this.dateCorrections = dateCorrections;
 		this.audit = audit;
 		this.json = json;
 		this.currency = Currency.getInstance(currency.toUpperCase(Locale.ROOT));
@@ -100,6 +104,26 @@ public class SalesService {
 			units.findAllByOrderByCode().stream().filter(UnitOfMeasure::isActive)
 				.map(unit -> new SalesDtos.Option(unit.getId(), unit.getCode())).toList(),
 			sales.customers(branch.getId(), PageRequest.of(0, 500)));
+	}
+
+	public SalesDtos.EditPage editPage(LocalDate week, UUID branchId, int page) {
+		var actor = access.requirePermission(Permission.SALE_EDIT);
+		if (page < 0 || page > 1_000_000) throw invalid("Invalid sales page");
+		var start = week == null ? null : week.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
+		var today = LocalDate.now(ZoneOffset.UTC);
+		var end = start == null ? null : start.plusDays(6).isAfter(today) ? today : start.plusDays(6);
+		var period = DashboardPeriod.resolve(start, end);
+		if (branchId != null) access.requireBranch(branchId);
+		var visible = actor.isAllBranches() ? branches.findAllByOrderByCode() : branches.findAccessibleBranches(actor.getId());
+		var options = visible.stream().map(branch -> new SalesDtos.Option(branch.getId(), branch.getName())).toList();
+		var ids = visible.stream().map(Branch::getId).filter(id -> branchId == null || id.equals(branchId)).toList();
+		if (ids.isEmpty()) return new SalesDtos.EditPage(List.of(), options, period.start(), period.end(), page, 0);
+		var found = sales.forEditing(ids, period.start(), period.end(), PageRequest.of(page, 100));
+		var rows = found.stream().map(sale -> new SalesDtos.EditSale(sale.getId(),
+			"PR-" + sale.getId().toString().toUpperCase(Locale.ROOT), sale.getBranchName(), sale.getSellerName(),
+			sale.getCustomer(), sale.getSaleDate(), sale.getCurrency(), money(sale.getTotal(), Currency.getInstance(sale.getCurrency())),
+			sale.getVoidOperation() == null ? "PAID" : "VOIDED")).toList();
+		return new SalesDtos.EditPage(rows, options, period.start(), period.end(), page, found.getTotalElements());
 	}
 
 	public SalesDtos.Quote quote(SalesDtos.QuoteRequest request) {
@@ -188,11 +212,45 @@ public class SalesService {
 		return receipt(id);
 	}
 
+	@Transactional
+	public SalesDtos.Receipt correctDate(UUID id, SalesDtos.DateCorrectionRequest request) {
+		var actor = access.requirePermission(Permission.SALE_EDIT);
+		var branchId = sales.branchId(id)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Sale not found"));
+		lock(branchId, false);
+		var sale = find(id);
+		var hash = PostingFingerprint.of(json, StockOperation.Kind.SALE, actor.getId(), new DateCorrectionIdentity(id, request));
+		var previous = dateCorrections.findById(request.requestId());
+		if (previous.isPresent()) {
+			if (!previous.get().getRequestHash().equals(hash)) throw conflict("Request ID already used with different details or actor");
+			return receipt(id);
+		}
+		if (sale.getVoidOperation() != null) throw conflict("Voided sales cannot have their date changed");
+		if (sale.getVersion() != request.expectedVersion()) throw conflict("This sale changed. Reload the receipt before correcting its date");
+		var date = saleDate(request.saleDate());
+		if (date.equals(sale.getSaleDate())) throw invalid("Choose a different sale date");
+		var until = date.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+		for (var allocation : allocations.forSale(id)) {
+			var batch = allocation.getMovement().getBatch();
+			if (batch.getReceivedDate().isAfter(date)
+					|| (batch.getExpiryDate() != null && batch.getExpiryDate().isBefore(date))
+					|| (batch.getSourceBatch() != null && !batch.getOperation().getPostedAt().isBefore(until))) {
+				throw conflict("The original stock batch is not eligible on this date: " + batch.getLotCode());
+			}
+		}
+		dateCorrections.save(new SaleDateCorrection(sale, actor, request, hash));
+		sale.correctDate(date);
+		audit.save(new AuditEvent(actor.getId(), "SALE_DATE_CORRECTED", "SALE", id));
+		sales.flush();
+		return receipt(id);
+	}
+
 	public SalesDtos.Receipt receipt(UUID id) {
 		var actor = access.currentUser();
 		var permissions = access.permissions();
 		var sale = find(id);
 		if (!permissions.contains(Permission.SALES_VIEW) && !permissions.contains(Permission.SALE_VOID)
+				&& !permissions.contains(Permission.SALE_EDIT)
 				&& !(permissions.contains(Permission.SALE_CREATE) && sale.getSellerId().equals(actor.getId()))) {
 			throw new AccessDeniedException("Sales viewing permission or ownership is required");
 		}
@@ -216,7 +274,11 @@ public class SalesService {
 			reversal == null ? "PAID" : "VOIDED", money(sale.getTotal(), receiptCurrency), profit ? money(sale.getCost(), receiptCurrency) : null,
 			profit ? money(sale.getTotal().subtract(sale.getCost()), receiptCurrency) : null,
 			reversal == null ? null : reversal.getPostedAt(), reversal == null ? null : reversal.getActorId(),
-			reversal == null ? null : reversal.getNotes(), sale.getRefundReference(), items);
+			reversal == null ? null : reversal.getNotes(), sale.getRefundReference(), items,
+			sale.getVersion(), reversal == null && permissions.contains(Permission.SALE_EDIT),
+			dateCorrections.findBySaleIdOrderByCorrectedAtAscIdAsc(id).stream().map(correction ->
+				new SalesDtos.DateCorrection(correction.getPreviousDate(), correction.getCorrectedDate(),
+					correction.getActorName(), correction.getReason(), correction.getCorrectedAt())).toList());
 	}
 
 	private Sale find(UUID id) {
@@ -270,6 +332,9 @@ public class SalesService {
 	}
 
 	private record VoidIdentity(UUID saleId, SalesDtos.VoidRequest request) {
+	}
+
+	private record DateCorrectionIdentity(UUID saleId, SalesDtos.DateCorrectionRequest request) {
 	}
 
 	private static ResponseStatusException invalid(String detail) {

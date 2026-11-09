@@ -169,6 +169,7 @@ The application implements these capabilities:
 | `TRANSFER_DISPATCH` | Dispatch from an assigned active source to a different active destination |
 | `TRANSFER_RECEIVE` | Finally receive at an assigned active destination and account for permanent shortages/damage |
 | `SALE_CREATE` | Post paid sales in exactly one assigned branch; quote totals and view own receipts/performance |
+| `SALE_EDIT` | View weekly sales for editing and correct paid-sale dates within branch scope |
 | `SALES_VIEW` | Read all sales and staff performance within assigned branch scope |
 | `SALE_VOID` | Void a whole sale within scope after all goods are returned and a full manual refund is confirmed |
 | `PROFIT_VIEW` | View purchase/carrying costs, gross profit and net profit including aggregated expenses and stock losses |
@@ -1060,12 +1061,35 @@ downtime. Future dates are rejected by the server. Both quote and sale APIs
 accept optional `saleDate`; omission preserves the today default for existing
 clients. Changing the date invalidates the quote and payment confirmation.
 
-The selected date is immutable and shown separately from the actual **Recorded
+The selected date is shown separately from the immutable actual **Recorded
 at** timestamp on the receipt. Backdated sales have an additional `SALE_BACKDATED`
 audit event. Sales, payment summaries, gross-profit and net-profit reports use
 the selected sale date; refunds keep their own actual posting date. V12 backfills
 existing sales from their UTC posting dates without changing their timestamps.
 Back up PostgreSQL before applying this migration.
+
+To fix a wrong date, open **Sales > Edit sale**, select the week/branch and choose
+**Correct date**. The default week is the current Monday through today in UTC;
+historical selections show the whole Monday-to-Sunday week. The new Keycloak
+client permission `SALE_EDIT` grants weekly cross-staff sale viewing and date
+correction within assigned branch scope, without granting broader Reports access.
+Add that client role to the sales-manager composite and sign in again to refresh
+claims. `SALE_CREATE`, `SALES_VIEW` and `SALE_VOID` alone do not permit edits.
+A reason is required, and the receipt retains all previous
+dates, correction reasons, actors and timestamps. Voided sales cannot be edited.
+The date-only `POST /api/sales/{id}/date` accepts `requestId`, `saleDate`,
+`expectedVersion` (from the receipt) and `reason`. Unchanged retries are safe;
+stale versions or changed retry payloads conflict. `GET /api/sales/edit` accepts
+optional `week` (a date within the desired week), `branchId` and `page`, with
+100 sales per page. V15 adds correction history
+and sale versioning; back up PostgreSQL before migration.
+
+Corrections move sales and financial summaries to the corrected date but never
+repost stock or change payment references, quantities, prices, allocations or
+COGS. Every original allocated batch must still be eligible on the corrected
+date, including its receipt, expiry and transfer-arrival dates. The physical
+stock movement timestamps stay unchanged. Each correction records a
+`SALE_DATE_CORRECTED` audit event.
 
 Backdating does **not** recreate an earlier stock ledger. Stock is deducted now
 from currently available quantities and carrying costs, limited to batches
@@ -1144,7 +1168,7 @@ must be confidential.
 
 `SALE_VOID` also permits inspecting an in-scope receipt to perform/review its
 correction, but does not grant cross-staff summary reports.
-It allows a **whole-sale void only** after all goods were physically
+For a **whole-sale void**, all goods must have been physically
 returned and a full refund manually completed. Noncash refunds require a refund
 reference. A void restores the original batches and exact allocated costs,
 retains the original receipt and records the reason, actor and refund.

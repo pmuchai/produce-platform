@@ -71,7 +71,7 @@ public class WorkspaceController {
 		model.addAttribute("navGroup", switch (page) {
 			case "receipts", "stock" -> "stock";
 			case "stock-report", "movement-report", "audit-report", "sales-report", "net-profit" -> "reports";
-			case "sale", "receipt" -> "sales";
+			case "sale", "sale-edit", "receipt" -> "sales";
 			case "catalogue", "branches", "configurations" -> "configurations";
 			default -> page;
 		});
@@ -92,6 +92,7 @@ public class WorkspaceController {
 		model.addAttribute("canSales", permissions.contains(Permission.SALE_CREATE) || permissions.contains(Permission.SALES_VIEW));
 		model.addAttribute("canWhatsApp", whatsapp.getIfAvailable() != null);
 		model.addAttribute("createSale", staff.canCreateSale());
+		model.addAttribute("editSale", permissions.contains(Permission.SALE_EDIT));
 		model.addAttribute("voidSale", permissions.contains(Permission.SALE_VOID));
 		model.addAttribute("canProfit", permissions.contains(Permission.PROFIT_VIEW));
 		model.addAttribute("canExpenses", permissions.contains(Permission.EXPENSE_VIEW));
@@ -236,6 +237,15 @@ public class WorkspaceController {
 		model.addAttribute("receipt", sales.receipt(id));
 		workspace(model, "receipt");
 		return "sale-receipt";
+	}
+
+	@GetMapping("/ui/sales/edit")
+	public String editSales(Model model, @RequestParam(required = false) LocalDate week,
+			@RequestParam(required = false) UUID branchId, @RequestParam(defaultValue = "0") int page) {
+		model.addAttribute("editing", sales.editPage(week, branchId, page));
+		model.addAttribute("selectedBranch", branchId);
+		workspace(model, "sale-edit");
+		return "sale-edit";
 	}
 
 	@GetMapping({"/ui/reports/sales", "/ui/reports/daily-sales", "/ui/reports/product-sales",

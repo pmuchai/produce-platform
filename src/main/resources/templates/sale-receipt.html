@@ -9,7 +9,7 @@
   <div th:replace="~{layout :: notice}"></div>
   <article class="panel" id="sale-receipt">
     <h2 th:text="${receipt.receiptNumber}"></h2>
-    <p><strong th:text="${receipt.status}"></strong> / Sale date (UTC): <span th:text="${receipt.saleDate}"></span></p>
+    <p><strong th:text="${receipt.status}"></strong> / Sale date (UTC): <span id="sale-date" th:text="${receipt.saleDate}"></span></p>
     <p>Recorded at: <span th:text="${receipt.postedAt}"></span> (UTC)</p>
     <p th:text="'Branch: ' + ${receipt.branch} + ' / Salesperson: ' + ${receipt.seller}"></p>
     <p th:text="'Customer: ' + ${receipt.customer}"></p>
@@ -28,7 +28,26 @@
     <p class="hint">Sales receipt, not a tax invoice.</p>
     <button type="button" id="print-receipt" class="secondary">Print receipt</button>
     <a th:if="${createSale}" th:href="@{/ui/sales}">New sale</a>
+    <details th:if="${!receipt.dateCorrections.isEmpty()}" class="line-options">
+      <summary>Date corrections</summary>
+      <ul><li th:each="correction : ${receipt.dateCorrections}">
+        <span th:text="${correction.previousDate} + ' to ' + ${correction.correctedDate}"></span>
+        <span th:text="' / ' + ${correction.actor} + ' / ' + ${correction.correctedAt}"></span>
+        <p th:text="${correction.reason}"></p>
+      </li></ul>
+    </details>
   </article>
+  <details th:if="${receipt.canCorrectDate}" class="panel" id="date-correction">
+    <summary>Correct sale date</summary>
+    <form id="sale-date-form" class="editor" th:attr="data-sale-id=${receipt.id}">
+      <input type="hidden" name="expectedVersion" th:value="${receipt.version}">
+      <label>Sale date (UTC)<input name="saleDate" type="date" min="1970-01-01" th:max="${today}" th:value="${receipt.saleDate}" required></label>
+      <label>Reason<textarea name="reason" maxlength="500" required></textarea></label>
+      <p class="hint">Only the date changes. Payments and stock allocations stay unchanged.</p>
+      <div class="form-actions"><button type="submit">Save corrected date</button><span class="form-message" role="status" aria-live="polite"></span></div>
+    </form>
+  </details>
+  <a th:if="${editSale}" th:href="@{/ui/sales/edit(week=${receipt.saleDate},branchId=${receipt.branchId})}">Back to sales week</a>
   <section th:if="${voidSale and receipt.status == 'PAID'}" class="panel">
     <h2>Void entire sale</h2>
     <form id="sale-void-form" class="editor" th:attr="data-sale-id=${receipt.id}">
