@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{layout :: head('Staff Product Sales')}"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<aside th:replace="~{layout :: sidebar}"></aside>
+<main id="main" class="workspace staff-product-report">
+  <header th:replace="~{layout :: header('Staff Product Sales', 'Sold, refunded and net quantities by staff and product')}"></header>
+  <p th:if="${report.ownSalesOnly}" class="notice">Your own attributed sales only. Other staff sales require SALES_VIEW.</p>
+  <form th:unless="${printView}" method="get" th:action="@{/ui/reports/staff-product-sales}" class="date-filter panel report-controls">
+    <label>Branch<select name="branchId"><option value="">All accessible branches</option><option th:each="branch : ${report.branches}" th:value="${branch.id}" th:selected="${selectedBranch == branch.id}" th:text="${branch.name}"></option></select></label>
+    <label>Staff<select name="staffId"><option value="" th:text="${report.ownSalesOnly} ? 'Your own sales' : 'All accessible staff'"></option><option th:if="${missingStaffOption}" th:value="${selectedStaff}" selected>Selected staff (no activity)</option><option th:each="staff : ${report.staff}" th:value="${staff.id}" th:selected="${selectedStaff == staff.id}" th:text="${staff.name} + ' (' + ${staff.username} + ')'"></option></select></label>
+    <label>From (UTC)<input type="date" name="start" min="1970-01-01" th:max="${today}" th:value="${period.start}" required></label>
+    <label>To (UTC)<input type="date" name="end" min="1970-01-01" th:max="${today}" th:value="${period.end}" required></label>
+    <button type="submit">Apply filters</button>
+  </form>
+  <div class="report-controls">
+    <a th:unless="${printView}" th:href="@{/ui/reports/staff-product-sales(start=${period.start},end=${period.end},branchId=${selectedBranch},staffId=${selectedStaff},print=true)}">Print report</a>
+    <th:block th:if="${printView}">
+      <button type="button" id="print-report">Print report</button>
+      <a th:href="@{/ui/reports/staff-product-sales(start=${period.start},end=${period.end},branchId=${selectedBranch},staffId=${selectedStaff})}">Back to report</a>
+    </th:block>
+  </div>
+  <section class="panel">
+    <h1>Staff Product Sales</h1>
+    <p th:text="${branchLabel} + ' | ' + ${staffLabel}"></p>
+    <p th:text="${period.start} + ' to ' + ${period.end} + ' (UTC)'"></p>
+    <p class="hint">Refunded quantities are full sale returns recorded within this period, including returns of earlier sales. Net quantity = sold minus refunded. Quantities use each product's base unit; unlike units are not combined.</p>
+    <div class="table-wrap">
+      <table id="staff-product-rows">
+        <thead><tr><th>Staff</th><th>Product</th><th>Unit</th><th>Quantity sold</th><th>Quantity refunded</th><th>Net quantity sold</th></tr></thead>
+        <tbody>
+          <tr th:each="row : ${report.rows}">
+            <td th:text="${row.staffName} + ' (' + ${row.username} + ')'"></td>
+            <td th:text="${row.productName} + ' (' + ${row.productCode} + ')'"></td>
+            <td th:text="${row.unit}"></td><td th:text="${row.sold}"></td><td th:text="${row.refunded}"></td><td th:text="${row.net}"></td>
+          </tr>
+          <tr th:if="${report.rows.isEmpty()}"><td colspan="6">No activity within these filters and your access scope.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h2>Totals for all matching rows</h2>
+    <table id="staff-product-totals">
+      <thead><tr><th>Unit</th><th>Quantity sold</th><th>Quantity refunded</th><th>Net quantity sold</th></tr></thead>
+      <tbody><tr th:each="total : ${report.totals}"><td th:text="${total.unit}"></td><td th:text="${total.sold}"></td><td th:text="${total.refunded}"></td><td th:text="${total.net}"></td></tr></tbody>
+    </table>
+    <p th:if="${printView}" th:text="${report.totalElements} + ' matching rows'"></p>
+    <nav th:unless="${printView}" class="pagination report-controls" aria-label="Report pages">
+      <a th:if="${report.page > 0}" th:href="@{/ui/reports/staff-product-sales(start=${period.start},end=${period.end},branchId=${selectedBranch},staffId=${selectedStaff},page=${report.page - 1})}">Previous</a>
+      <span th:text="'Page ' + ${report.page + 1} + ' / ' + ${report.totalElements} + ' rows'"></span>
+      <a th:if="${(report.page + 1) * 100 < report.totalElements}" th:href="@{/ui/reports/staff-product-sales(start=${period.start},end=${period.end},branchId=${selectedBranch},staffId=${selectedStaff},page=${report.page + 1})}">Next</a>
+    </nav>
+  </section>
+</main>
+</body>
+</html>

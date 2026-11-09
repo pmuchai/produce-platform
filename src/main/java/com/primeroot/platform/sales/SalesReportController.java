@@ -16,6 +16,15 @@ public class SalesReportController {
 	private final SalesReportService reports;
 	public SalesReportController(SalesReportService reports) { this.reports = reports; }
 
+	@GetMapping("/staff-product-sales")
+	public SalesReports.StaffProductReport staffProducts(@RequestParam(required = false) UUID branchId,
+			@RequestParam(required = false) UUID staffId,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
+			@RequestParam(defaultValue = "0") int page) {
+		return reports.staffProducts(branchId, staffId, DashboardPeriod.resolve(start, end), page, false);
+	}
+
 	@GetMapping("/{kind}")
 	public SalesReports.Report report(@PathVariable String kind, @RequestParam(required = false) UUID branchId,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,

@@ -260,6 +260,12 @@ button > .icon { vertical-align: middle; margin-right: .35rem; }
   .sidebar, .page-header, .skip, #sale-void-form, #print-receipt, #sale-receipt ~ section, #sale-receipt > a { display: none !important; }
   .workspace { margin: 0; padding: 0; max-width: none; }
   #sale-receipt { border: 0; box-shadow: none; padding: 0; }
+  .staff-product-report .report-controls, .staff-product-report .notice { display: none !important; }
+  .staff-product-report .panel { border: 0; box-shadow: none; padding: 0; }
+  .staff-product-report .table-wrap { overflow: visible; }
+  .staff-product-report table { width: 100%; min-width: 0; }
+  .staff-product-report thead { display: table-header-group; }
+  .staff-product-report tr { break-inside: avoid; }
 }
 [hidden] { display: none !important; }
 @media (max-width: 1200px) { .four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
