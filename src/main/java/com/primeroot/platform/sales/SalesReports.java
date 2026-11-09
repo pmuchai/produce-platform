@@ -16,6 +16,7 @@ public final class SalesReports {
 		PRODUCTS("product-sales", "Product sales"),
 		BRANCHES("branch-sales", "Branch sales"),
 		STAFF("staff-performance", "Staff performance"),
+		STAFF_PRODUCTS("staff-product-sales", "Staff Product Sales"),
 		CUSTOMERS("customer-sales", "Customer sales"),
 		PAYMENTS("payments", "Payments and refunds"),
 		PROFIT("profit", "Gross profit and cost of goods sold"),
@@ -44,6 +45,27 @@ public final class SalesReports {
 
 	public record QuantityTotal(String currency, String unit,
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal quantity) {
+	}
+
+	public record StaffOption(UUID id, String name, String username) {
+	}
+
+	public record StaffProductRow(UUID staffId, String staffName, String username, UUID productId,
+		String productName, String productCode, String unit,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal sold,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal refunded,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal net) {
+	}
+
+	public record StaffProductTotal(String unit,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal sold,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal refunded,
+		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal net) {
+	}
+
+	public record StaffProductReport(Kind kind, List<StaffProductRow> rows, long totalElements, int page,
+		List<StaffProductTotal> totals, boolean ownSalesOnly,
+		List<com.primeroot.platform.inventory.InventoryDtos.BranchOption> branches, List<StaffOption> staff) {
 	}
 
 	public record Row(UUID saleId, String label, String detail, String currency, String unit,

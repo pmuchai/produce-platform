@@ -485,6 +485,7 @@
   };
   document.getElementById('quote-sale')?.addEventListener('click', quoteSale);
   document.getElementById('print-receipt')?.addEventListener('click', () => window.print());
+  document.getElementById('print-report')?.addEventListener('click', () => window.print());
   const saleDateForm = document.getElementById('sale-date-form');
   if (saleDateForm) {
     if (window.location.hash === '#date-correction') saleDateForm.closest('details').open = true;

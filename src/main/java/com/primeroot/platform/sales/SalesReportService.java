@@ -58,6 +58,69 @@ public class SalesReportService {
 				.thenComparing(SalesReports.QuantityTotal::unit)).toList();
 	}
 
+	public SalesReports.StaffProductReport staffProducts(UUID branchId, UUID staffId, DashboardPeriod period,
+			int page, boolean print) {
+		var actor = access.currentUser();
+		var permissions = access.permissions();
+		boolean own = !permissions.contains(Permission.SALES_VIEW);
+		if (own && !permissions.contains(Permission.SALE_CREATE)) {
+			throw new AccessDeniedException("Sales viewing or selling permission is required");
+		}
+		if (own && staffId != null && !staffId.equals(actor.getId())) {
+			throw new AccessDeniedException("Only your own attributed sales are available");
+		}
+		if (page < 0 || page > 1_000_000) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid report page");
+		if (branchId != null) access.requireBranch(branchId);
+		var visible = actor.isAllBranches() ? branches.findAllByOrderByCode() : branches.findAccessibleBranches(actor.getId());
+		var ids = visible.stream().map(Branch::getId).filter(id -> branchId == null || id.equals(branchId)).toList();
+		var options = visible.stream().map(branch -> new BranchOption(branch.getId(), branch.getName(), branch.isActive())).toList();
+		if (ids.isEmpty()) return new SalesReports.StaffProductReport(SalesReports.Kind.STAFF_PRODUCTS,
+			List.of(), 0, page, List.of(), own, options, List.of());
+		var params = new MapSqlParameterSource().addValue("branches", ids)
+			.addValue("from", java.sql.Timestamp.from(period.from())).addValue("until", java.sql.Timestamp.from(period.until()))
+			.addValue("limit", 100).addValue("offset", page * 100);
+		String scope = " e.branch_id IN (:branches) ";
+		if (own) {
+			scope += " AND e.seller_id = :actor ";
+			params.addValue("actor", actor.getId());
+		}
+		var staffOptions = jdbc.query("""
+			SELECT DISTINCT u.id, u.full_name, u.username FROM sales_events e
+			JOIN staff_users u ON u.id = e.seller_id WHERE
+			""" + scope + " ORDER BY u.full_name, u.username, u.id", params,
+			(rs, index) -> new SalesReports.StaffOption(rs.getObject("id", UUID.class),
+				rs.getString("full_name"), rs.getString("username")));
+		String where = scope + " AND e.occurred_at >= :from AND e.occurred_at < :until ";
+		if (staffId != null) {
+			where += " AND e.seller_id = :staff ";
+			params.addValue("staff", staffId);
+		}
+		String query = """
+			SELECT u.id AS staff_id, u.full_name AS staff_name, u.username,
+			l.product_id, l.product_name, l.product_code, l.base_unit AS unit,
+			SUM(CASE WHEN e.direction = 1 THEN l.base_quantity ELSE 0 END) AS sold,
+			SUM(CASE WHEN e.direction = -1 THEN l.base_quantity ELSE 0 END) AS refunded,
+			SUM(l.base_quantity * e.direction) AS net
+			FROM sales_events e JOIN staff_users u ON u.id = e.seller_id
+			JOIN sale_lines l ON l.sale_id = e.sale_id WHERE
+			""" + where + """
+			 GROUP BY u.id, u.full_name, u.username, l.product_id, l.product_name, l.product_code, l.base_unit
+			""";
+		var count = jdbc.queryForObject("SELECT COUNT(*) FROM (" + query + ") staff_products", params, Long.class);
+		var rows = jdbc.query(query + " ORDER BY staff_name, username, staff_id, product_name, product_code, product_id, unit"
+			+ (print ? "" : " LIMIT :limit OFFSET :offset"), params,
+			(rs, index) -> new SalesReports.StaffProductRow(rs.getObject("staff_id", UUID.class),
+				rs.getString("staff_name"), rs.getString("username"), rs.getObject("product_id", UUID.class),
+				rs.getString("product_name"), rs.getString("product_code"), rs.getString("unit"),
+				rs.getBigDecimal("sold"), rs.getBigDecimal("refunded"), rs.getBigDecimal("net")));
+		var totals = jdbc.query("SELECT unit, SUM(sold) AS sold, SUM(refunded) AS refunded, SUM(net) AS net FROM ("
+			+ query + ") staff_products GROUP BY unit ORDER BY unit", params,
+			(rs, index) -> new SalesReports.StaffProductTotal(rs.getString("unit"), rs.getBigDecimal("sold"),
+				rs.getBigDecimal("refunded"), rs.getBigDecimal("net")));
+		return new SalesReports.StaffProductReport(SalesReports.Kind.STAFF_PRODUCTS, rows, count, page,
+			totals, own, options, staffOptions);
+	}
+
 	private SalesReports.Report report(SalesReports.Kind kind, UUID branchId, DashboardPeriod period, int page, boolean chart) {
 		var actor = access.currentUser();
 		var permissions = access.permissions();

@@ -266,6 +266,30 @@ public class WorkspaceController {
 		return "sales-report";
 	}
 
+	@GetMapping("/ui/reports/staff-product-sales")
+	public String staffProductSales(Model model, @RequestParam(required = false) UUID branchId,
+			@RequestParam(required = false) UUID staffId,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
+			@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "false") boolean print) {
+		var period = DashboardPeriod.resolve(start, end);
+		var report = salesReports.staffProducts(branchId, staffId, period, page, print);
+		model.addAttribute("report", report);
+		model.addAttribute("selectedBranch", branchId);
+		model.addAttribute("selectedStaff", staffId);
+		model.addAttribute("missingStaffOption", staffId != null && report.staff().stream()
+			.noneMatch(option -> option.id().equals(staffId)));
+		model.addAttribute("branchLabel", branchId == null ? "All accessible branches" : report.branches().stream()
+			.filter(branch -> branch.id().equals(branchId)).map(branch -> branch.name()).findFirst().orElse("Selected branch"));
+		model.addAttribute("staffLabel", staffId == null ? (report.ownSalesOnly() ? "Your own sales" : "All accessible staff")
+			: report.staff().stream().filter(option -> option.id().equals(staffId))
+				.map(option -> option.name() + " (" + option.username() + ")").findFirst().orElse("Selected staff (no activity)"));
+		model.addAttribute("period", period);
+		model.addAttribute("printView", print);
+		workspace(model, "sales-report");
+		return "staff-product-sales";
+	}
+
 	@GetMapping({"/ui/stock-entries", "/ui/stock", "/ui/reports/stock", "/ui/reports/stock-movements"})
 	public String inventory(Model model, jakarta.servlet.http.HttpServletRequest request,
 			@RequestParam(required = false) UUID branchId,

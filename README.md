@@ -629,7 +629,7 @@ automatically and its active child is highlighted.
 | Dashboard | Overview |
 | Sales | New sale |
 | Stock | Receive stock, Stock Movement |
-| Reports | Sales and receipts, Daily sales, Product sales, Branch sales, Staff performance, Customer sales, Payments and refunds, Gross profit / COGS, Stock valuation, Stock losses, Stock levels, Stock movements, Audit activity |
+| Reports | Sales and receipts, Daily sales, Product sales, Branch sales, Staff performance, Staff Product Sales, Customer sales, Payments and refunds, Gross profit / COGS, Stock valuation, Stock losses, Stock levels, Stock movements, Audit activity |
 | User management | Staff & branch assignments |
 | Configurations | Overview, Catalogue and units, Branches |
 
@@ -1192,6 +1192,7 @@ unless `PROFIT_VIEW` is also present. There is no role-name shortcut.
 | `product-sales` | Base-unit quantities, revenue and optional cost/margin by product |
 | `branch-sales` | Revenue, receipt/refund counts and optional cost/margin by branch |
 | `staff-performance` | Attributed sales/refunds, revenue and optional cost/margin per salesperson and branch |
+| `staff-product-sales` | Sold, refunded and net base-unit quantities per staff/product, with branch/date/staff filters and full-result printing |
 | `customer-sales` | Revenue and receipt/refund counts by selected customer, including Walk-ins |
 | `payments` | Cash/M-Pesa/bank net receipts and manually recorded full refunds |
 | `profit` | Net revenue, COGS and gross profit by branch and currency |
@@ -1208,6 +1209,17 @@ units. Current stock valuation is explicitly **not historical** and has no
 date inputs. Its known-cost totals exclude unknown values, not substitute zero.
 SQL aggregation covers every matching transaction; detail/group rows are
 bounded to 100 per page and totals are not truncated with the page.
+
+**Staff Product Sales** also accepts `staffId` on its UI and
+`/api/sales/reports/staff-product-sales` endpoints. The staff selector lists
+people with recorded sales in the accessible branches, including historical
+staff. Without `SALES_VIEW`, only the signed-in salesperson is available;
+requesting someone else is forbidden. Quantities are grouped by staff, product
+snapshot and base unit, with separate sold/refunded/net columns and full-filter
+totals per unit. A refund in the selected period can produce a negative net
+quantity when its original sale predates the period. **Print report** opens an
+unpaginated view (`print=true`), retains the applied filters and totals, and
+provides a print button; print styles hide navigation and controls.
 
 **Gross profit = net sales revenue minus net allocated COGS.** It is not net
 business profit and does not subtract operating expenses, taxes or separately

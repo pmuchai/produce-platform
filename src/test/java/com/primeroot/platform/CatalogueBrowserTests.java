@@ -492,6 +492,24 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			navigateSidebar(chrome, "reports", "/ui/reports/" + report);
 			assertThat(chrome.evaluate("document.documentElement.scrollWidth <= innerWidth").asBoolean()).isTrue();
 		}
+		navigateSidebar(chrome, "reports", "/ui/reports/staff-product-sales");
+		assertThat(chrome.evaluate("document.querySelector('#staff-product-rows').innerText").asText())
+			.contains("Quantity sold", "Quantity refunded", "Net quantity sold", "2.000000", "1.250000", "0.750000");
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('.date-filter');
+			f.elements.staffId.value = f.elements.staffId.options[1].value; f.requestSubmit(); return true; })()
+			""");
+		chrome.await("location.search.includes('staffId=') && document.querySelector('#staff-product-rows') !== null && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('.date-filter').elements.staffId.value").asText()).isNotBlank();
+		chrome.evaluate("document.querySelector('.report-controls a').click(); true");
+		chrome.await("document.querySelector('#print-report') !== null && document.readyState === 'complete'");
+		chrome.evaluate("window.print = () => { window.reportPrinted = true; }; document.querySelector('#print-report').click(); true");
+		assertThat(chrome.evaluate("window.reportPrinted === true").asBoolean()).isTrue();
+		chrome.command("Emulation.setEmulatedMedia", Map.of("media", "print"));
+		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('.report-controls')).display").asText()).isEqualTo("none");
+		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('.sidebar')).display").asText()).isEqualTo("none");
+		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('.table-wrap')).overflow").asText()).isEqualTo("visible");
+		chrome.command("Emulation.setEmulatedMedia", Map.of("media", ""));
 		navigateSidebar(chrome, "reports", "/ui/reports/profit");
 		assertThat(chrome.evaluate("document.querySelector('main').innerText").asText()).contains("90.00", "60.09", "29.91");
 		navigateSidebar(chrome, "dashboard", "/home");

@@ -795,6 +795,113 @@ class SalesIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void staffProductSalesSeparatesSoldAndRefundedQuantitiesAndScopesStaffBranchesAndDates() throws Exception {
+		try (var admin = browser(); var seller = browser(); var peer = browser(); var manager = browser(); var anonymous = browser()) {
+			fixture(admin);
+			receive(admin, "20", "1", "STAFF_PRODUCTS", null);
+			var type = jdbc.queryForObject("SELECT produce_type_id FROM products WHERE id = ?", UUID.class, UUID.fromString(product));
+			var counted = admin.body(admin.mutate("POST", "/api/catalogue/products", Map.of("code", "COUNTED",
+				"name", "Counted produce", "active", true, "produceTypeId", type, "baseUnitId", unit("PIECE")))).get("id").asText();
+			receiveLines(admin, List.of(Map.of("productId", counted, "unitId", unit("PIECE"), "quantity", "10",
+				"purchaseUnitCost", "1", "lotCode", "COUNTED")));
+			seller.login("sale-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			peer.login("sale-two", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			manager.login("manager-one", List.of("SALES_VIEW"), OidcTestProvider.Fault.NONE);
+			var request = sale("2", "10");
+			request.put("saleDate", today.minusDays(1).toString());
+			request.put("lines", List.of(saleLine("2", "10"), Map.of("productId", counted, "unitId", unit("PIECE"),
+				"quantity", "3", "unitPrice", "10")));
+			var posted = seller.mutate("POST", "/api/sales", request);
+			assertThat(posted.statusCode()).withFailMessage(posted.body()).isEqualTo(201);
+			assertThat(peer.mutate("POST", "/api/sales", sale("1", "10")).statusCode()).isEqualTo(201);
+			var hidden = seller.body(seller.mutate("POST", "/api/sales", sale("4", "10"))).get("id").asText();
+			jdbc.update("UPDATE sales SET branch_id = ? WHERE id = ?", UUID.fromString(otherBranch), UUID.fromString(hidden));
+			var sellerId = jdbc.queryForObject("SELECT id FROM staff_users WHERE subject = 'sale-one'", UUID.class);
+			var peerId = jdbc.queryForObject("SELECT id FROM staff_users WHERE subject = 'sale-two'", UUID.class);
+			String path = "/api/sales/reports/staff-product-sales";
+			String dates = "?start=" + today.minusDays(1) + "&end=" + today;
+			var own = seller.body(seller.get(path + dates));
+			assertThat(own.get("ownSalesOnly").asBoolean()).isTrue();
+			assertThat(own.get("rows").size()).isEqualTo(2);
+			assertThat(own.get("staff").size()).isEqualTo(1);
+			assertThat(own.get("rows").get(1).get("sold").asText()).isEqualTo("2.000000");
+			assertThat(own.toString()).doesNotContain("sale-two", "\"cost\"", "\"revenue\"");
+			assertThat(seller.get(path + dates + "&staffId=" + peerId).statusCode()).isEqualTo(403);
+			assertThat(seller.get("/ui/reports/staff-product-sales" + dates + "&staffId=" + peerId + "&print=true")
+				.statusCode()).isEqualTo(403);
+			assertThat(manager.get(path + dates + "&branchId=" + otherBranch).statusCode()).isEqualTo(403);
+			assertThat(anonymous.get(path).statusCode()).isEqualTo(401);
+			var filtered = manager.body(manager.get(path + dates + "&staffId=" + sellerId));
+			assertThat(filtered.get("rows").size()).isEqualTo(2);
+			assertThat(filtered.get("totals").get(0).get("unit").asText()).isEqualTo("KG");
+			assertThat(filtered.get("totals").get(0).get("net").asText()).isEqualTo("2.000000");
+			assertThat(filtered.get("totals").get(1).get("unit").asText()).isEqualTo("PIECE");
+			assertThat(filtered.get("totals").get(1).get("net").asText()).isEqualTo("3.000000");
+			assertThat(manager.get("/ui/reports/staff-product-sales" + dates + "&staffId=" + sellerId).body())
+				.contains("Quantity sold", "Quantity refunded", "Net quantity sold", "Print report");
+			var id = seller.body(posted).get("id").asText();
+			assertThat(admin.mutate("POST", "/api/sales/" + id + "/void", voidRequest()).statusCode()).isEqualTo(200);
+			var refunded = manager.body(manager.get(path + dates + "&staffId=" + sellerId)).get("rows").get(1);
+			assertThat(refunded.get("sold").asText()).isEqualTo("2.000000");
+			assertThat(refunded.get("refunded").asText()).isEqualTo("2.000000");
+			assertThat(refunded.get("net").asText()).isEqualTo("0.000000");
+			var returnsOnly = seller.body(seller.get(path + "?start=" + today + "&end=" + today)).get("rows").get(1);
+			assertThat(new BigDecimal(returnsOnly.get("sold").asText())).isEqualByComparingTo("0");
+			assertThat(returnsOnly.get("refunded").asText()).isEqualTo("2.000000");
+			assertThat(returnsOnly.get("net").asText()).isEqualTo("-2.000000");
+			var originalDay = seller.body(seller.get(path + "?start=" + today.minusDays(1) + "&end=" + today.minusDays(1)))
+				.get("rows").get(1);
+			assertThat(originalDay.get("sold").asText()).isEqualTo("2.000000");
+			assertThat(new BigDecimal(originalDay.get("refunded").asText())).isEqualByComparingTo("0");
+			assertThat(manager.body(manager.get(path + dates + "&staffId=" + UUID.randomUUID())).get("rows").isEmpty()).isTrue();
+			assertThat(manager.get(path + "?page=-1").statusCode()).isEqualTo(400);
+			assertThat(manager.get(path + "?start=" + today + "&end=" + today.minusDays(1)).statusCode()).isEqualTo(400);
+			manager.login("manager-one", List.of("SALE_EDIT"), OidcTestProvider.Fault.NONE);
+			assertThat(manager.get(path).statusCode()).isEqualTo(403);
+			assertThat(manager.get("/ui/reports/staff-product-sales?print=true").statusCode()).isEqualTo(403);
+		}
+	}
+
+	@Test
+	void staffProductPrintIncludesEveryFilteredRowAndFullTotalsBeyondOnePage() throws Exception {
+		try (var admin = browser(); var seller = browser()) {
+			fixture(admin);
+			receive(admin, "10", "1", "PRINT", null);
+			seller.login("sale-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			var id = UUID.fromString(seller.body(seller.mutate("POST", "/api/sales", sale("1", "10"))).get("id").asText());
+			for (int index = 1; index <= 100; index++) {
+				var productId = UUID.randomUUID();
+				var name = "Print product " + String.format("%03d", index);
+				jdbc.update("""
+					INSERT INTO products(id, code, name, active, created_at, version, produce_type_id, base_unit_id)
+					SELECT ?, ?, ?, active, created_at, version, produce_type_id, base_unit_id FROM products WHERE id = ?
+					""", productId, "PRINT_" + index, name, UUID.fromString(product));
+				jdbc.update("""
+					INSERT INTO sale_lines(id, sale_id, line_number, product_id, product_name, product_code,
+						input_unit, base_unit, quantity, base_quantity, measured, unit_price, total, cost)
+					SELECT ?, sale_id, ?, ?, ?, ?, input_unit, base_unit, quantity, base_quantity, measured, unit_price, total, cost
+					FROM sale_lines WHERE sale_id = ? AND line_number = 1
+					""", UUID.randomUUID(), index + 1, productId, name, "PRINT_" + index, id);
+			}
+			var staffId = jdbc.queryForObject("SELECT seller_id FROM sales WHERE id = ?", UUID.class, id);
+			var filters = "?start=" + today + "&end=" + today + "&branchId=" + branch + "&staffId=" + staffId;
+			var api = "/api/sales/reports/staff-product-sales";
+			var report = admin.body(admin.get(api + filters));
+			assertThat(report.get("rows").size()).isEqualTo(100);
+			assertThat(report.get("totalElements").asInt()).isEqualTo(101);
+			assertThat(report.get("totals").get(0).get("sold").asText()).isEqualTo("101.000000");
+			assertThat(admin.body(admin.get(api + filters + "&page=1")).get("rows").size()).isEqualTo(1);
+			var ui = "/ui/reports/staff-product-sales";
+			assertThat(admin.get(ui + filters).body()).doesNotContain("Red onions (ONION_KG)");
+			var print = admin.get(ui + filters + "&page=1&print=true");
+			assertThat(print.statusCode()).withFailMessage(print.body()).isEqualTo(200);
+			assertThat(print.body()).contains("Red onions (ONION_KG)", "Print product 001", "Print product 100",
+				"101 matching rows", "101.000000", "seller.one", "Main branch", today.toString(), "id=\"print-report\"")
+				.doesNotContain("aria-label=\"Report pages\"", "class=\"date-filter panel report-controls\"");
+		}
+	}
+
+	@Test
 	void quantitySoldCardSeparatesBaseUnitsAndSubtractsFullRefundsWithinSellerScope() throws Exception {
 		try (var admin = browser(); var seller = browser(); var colleague = browser()) {
 			fixture(admin);
