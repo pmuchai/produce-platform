@@ -13,7 +13,7 @@ class PostgresBrowserTests extends CatalogueBrowserTests {
 
 	@BeforeEach
 	void resetDisposableBrowserFixtures() {
-		for (var table : java.util.List.of("audit_events", "staff_access_requests", "sale_allocations", "sale_lines", "sales",
+		for (var table : java.util.List.of("audit_events", "staff_access_requests", "sale_date_corrections", "sale_allocations", "sale_lines", "sales",
 				"stock_movements", "stock_batches", "stock_operations", "stock_thresholds", "product_packaging",
 				"products", "product_classifications", "produce_types", "user_branches", "staff_users", "branches")) {
 			jdbc.update("DELETE FROM " + table);

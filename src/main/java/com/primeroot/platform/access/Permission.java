@@ -2,6 +2,7 @@ package com.primeroot.platform.access;
 
 public enum Permission {
 	SALE_CREATE("Post fully paid sales in exactly one assigned branch; view own sales and performance"),
+	SALE_EDIT("View sales for editing and correct paid-sale dates within the assigned branch scope"),
 	SALES_VIEW("View sales and staff performance within the assigned branch scope"),
 	SALE_VOID("Void an entire sale after returned goods and a confirmed manual refund"),
 	PROFIT_VIEW("View purchase costs, valuation, gross profit and net profit including expenses/losses within branch scope"),

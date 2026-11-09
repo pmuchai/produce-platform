@@ -35,7 +35,7 @@ class SalesIntegrationTests extends OidcTestSupport {
 
 	@BeforeEach
 	void reset() {
-		for (var table : List.of("audit_events", "transfer_allocations", "stock_transfers", "sale_allocations", "sale_lines", "sales", "stock_movements",
+		for (var table : List.of("audit_events", "sale_date_corrections", "transfer_allocations", "stock_transfers", "sale_allocations", "sale_lines", "sales", "stock_movements",
 				"stock_batches", "stock_operations", "stock_thresholds", "product_packaging", "products",
 				"product_classifications", "produce_types", "user_branches", "staff_users", "branches")) {
 			jdbc.update("DELETE FROM " + table);
@@ -417,6 +417,117 @@ class SalesIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void authorizedDateCorrectionMovesReportsWithoutChangingStockPaymentsOrCostsAndRetriesSafely() throws Exception {
+		try (var admin = browser(); var seller = browser()) {
+			fixture(admin);
+			var originalDate = java.time.YearMonth.from(today).minusMonths(1).atEndOfMonth();
+			receive(admin, "5", "10", "DATE_CORRECTION", null);
+			jdbc.update("UPDATE stock_batches SET received_date = ? WHERE lot_code = 'DATE_CORRECTION'", originalDate.minusDays(1));
+			seller.login("sale-one", List.of("SALE_CREATE", "SALE_EDIT"), OidcTestProvider.Fault.NONE);
+			var sale = sale("2", "20");
+			sale.put("saleDate", originalDate.toString());
+			var posted = seller.body(seller.mutate("POST", "/api/sales", sale));
+			var id = posted.get("id").asText();
+			var before = admin.body(admin.get("/api/sales/" + id));
+			var request = new HashMap<String, Object>(Map.of("requestId", UUID.randomUUID(), "saleDate", today.toString(),
+				"expectedVersion", 0, "reason", "Historical sale entered against the wrong day"));
+			var response = seller.mutate("POST", "/api/sales/" + id + "/date", request);
+			assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(200);
+			var corrected = seller.body(response);
+			assertThat(corrected.get("saleDate").asText()).isEqualTo(today.toString());
+			assertThat(corrected.get("version").asLong()).isEqualTo(1);
+			assertThat(corrected.get("dateCorrections").get(0).get("previousDate").asText()).isEqualTo(originalDate.toString());
+			assertThat(corrected.get("dateCorrections").get(0).get("reason").asText()).isEqualTo(request.get("reason"));
+			assertThat(corrected.get("canCorrectDate").asBoolean()).isTrue();
+			var after = admin.body(admin.get("/api/sales/" + id));
+			for (var field : List.of("postedAt", "sellerId", "branchId", "paymentMethod", "paymentReference",
+					"total", "cost", "grossProfit", "lines")) {
+				assertThat(after.get(field)).as(field).isEqualTo(before.get(field));
+			}
+			assertThat(seller.mutate("POST", "/api/sales/" + id + "/date", request).statusCode()).isEqualTo(200);
+			var stale = new HashMap<>(request);
+			stale.put("requestId", UUID.randomUUID());
+			stale.put("saleDate", today.minusDays(1).toString());
+			assertThat(seller.mutate("POST", "/api/sales/" + id + "/date", stale).statusCode()).isEqualTo(409);
+			request.put("reason", "Changed retry details");
+			assertThat(seller.mutate("POST", "/api/sales/" + id + "/date", request).statusCode()).isEqualTo(409);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sale_date_corrections", Integer.class)).isEqualTo(1);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_events WHERE action = 'SALE_DATE_CORRECTED'", Integer.class)).isEqualTo(1);
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM stock_operations", Integer.class)).isEqualTo(2);
+			assertBatch("DATE_CORRECTION", "3", "30");
+			assertThat(admin.body(admin.get("/api/sales/reports/sales?start=" + originalDate + "&end=" + originalDate))
+				.get("totals").size()).isZero();
+			assertThat(admin.body(admin.get("/api/sales/reports/sales?start=" + today + "&end=" + today))
+				.get("totals").get(0).get("revenue").asText()).isEqualTo("40.00");
+			assertThat(seller.get("/ui/sales/" + id).body()).contains("id=\"sale-date-form\"", "Date corrections",
+				"Historical sale entered against the wrong day");
+			assertLedgers();
+		}
+	}
+
+	@Test
+	void dateCorrectionRequiresDedicatedScopedPermissionAndDoesNotEditVoidedSales() throws Exception {
+		try (var admin = browser(); var seller = browser(); var colleague = browser(); var manager = browser();
+				var other = browser(); var anonymous = browser()) {
+			fixture(admin);
+			receive(admin, "5", "10", "DATE_ACCESS", null);
+			seller.login("sale-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			var id = seller.body(seller.mutate("POST", "/api/sales", sale("1", "20"))).get("id").asText();
+			var request = Map.of("requestId", UUID.randomUUID(), "saleDate", today.minusDays(1).toString(),
+				"expectedVersion", 0, "reason", "Wrong day");
+			colleague.login("sale-two", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			manager.login("manager-one", List.of("SALES_VIEW"), OidcTestProvider.Fault.NONE);
+			other.login("other-one", List.of("SALE_EDIT"), OidcTestProvider.Fault.NONE);
+			assertThat(seller.mutate("POST", "/api/sales/" + id + "/date", request).statusCode()).isEqualTo(403);
+			assertThat(seller.get("/ui/sales/" + id).body()).doesNotContain("id=\"sale-date-form\"");
+			assertThat(colleague.mutate("POST", "/api/sales/" + id + "/date", request).statusCode()).isEqualTo(403);
+			assertThat(manager.body(manager.get("/api/sales/" + id)).get("canCorrectDate").asBoolean()).isFalse();
+			assertThat(manager.get("/ui/sales/" + id).body()).doesNotContain("id=\"sale-date-form\"");
+			assertThat(manager.mutate("POST", "/api/sales/" + id + "/date", request).statusCode()).isEqualTo(403);
+			assertThat(other.mutate("POST", "/api/sales/" + id + "/date", request).statusCode()).isEqualTo(403);
+			assertThat(anonymous.mutate("POST", "/api/sales/" + id + "/date", request).statusCode()).isEqualTo(401);
+			assertThat(seller.send("POST", java.net.URI.create("http://localhost:" + port + "/api/sales/" + id + "/date"),
+				request, null).statusCode()).isEqualTo(403);
+			manager.login("manager-one", List.of("SALE_VOID"), OidcTestProvider.Fault.NONE);
+			assertThat(manager.mutate("POST", "/api/sales/" + id + "/date", request).statusCode()).isEqualTo(403);
+			manager.login("manager-one", List.of("SALE_EDIT"), OidcTestProvider.Fault.NONE);
+			assertThat(manager.mutate("POST", "/api/sales/" + id + "/date", request).statusCode()).isEqualTo(200);
+			assertThat(admin.mutate("POST", "/api/sales/" + id + "/void", voidRequest()).statusCode()).isEqualTo(200);
+			assertThat(seller.body(seller.get("/api/sales/" + id)).get("canCorrectDate").asBoolean()).isFalse();
+			assertThat(manager.mutate("POST", "/api/sales/" + id + "/date", Map.of("requestId", UUID.randomUUID(),
+				"saleDate", today.toString(), "expectedVersion", 2, "reason", "Voided sale")).statusCode()).isEqualTo(409);
+			assertBatch("DATE_ACCESS", "5", "50");
+			assertLedgers();
+		}
+	}
+
+	@Test
+	void dateCorrectionRejectsInvalidDatesAndDatesOutsideOriginalBatchEligibility() throws Exception {
+		try (var admin = browser(); var seller = browser()) {
+			fixture(admin);
+			receive(admin, "2", "10", "DATE_EXPIRED", today.minusDays(1));
+			seller.login("sale-one", List.of("SALE_CREATE", "SALE_EDIT"), OidcTestProvider.Fault.NONE);
+			var sale = sale("2", "20");
+			sale.put("saleDate", today.minusDays(1).toString());
+			var id = seller.body(seller.mutate("POST", "/api/sales", sale)).get("id").asText();
+			for (var date : List.of(today.plusDays(1).toString(), "1969-12-31", "invalid")) {
+				assertThat(seller.mutate("POST", "/api/sales/" + id + "/date", Map.of("requestId", UUID.randomUUID(),
+					"saleDate", date, "expectedVersion", 0, "reason", "Bad date")).statusCode()).as(date).isEqualTo(400);
+			}
+			for (var date : List.of(today, today.minusDays(11))) {
+				assertThat(seller.mutate("POST", "/api/sales/" + id + "/date", Map.of("requestId", UUID.randomUUID(),
+					"saleDate", date.toString(), "expectedVersion", 0, "reason", "Ineligible batch")).statusCode()).as(date.toString()).isEqualTo(409);
+			}
+			assertThat(seller.mutate("POST", "/api/sales/" + id + "/date", Map.of("requestId", UUID.randomUUID(),
+				"saleDate", today.minusDays(2).toString(), "expectedVersion", 0, "reason", " ")).statusCode()).isEqualTo(400);
+			assertThat(seller.body(seller.get("/api/sales/" + id)).get("version").asLong()).isZero();
+			assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sale_date_corrections", Integer.class)).isZero();
+			assertBatch("DATE_EXPIRED", "0", "0");
+			assertLedgers();
+		}
+	}
+
+	@Test
 	void transferredStockCannotBeSoldBeforeItsArrivalDespiteOriginalSourceReceiptDate() throws Exception {
 		try (var admin = browser(); var seller = browser()) {
 			fixture(admin);
@@ -429,15 +540,61 @@ class SalesIntegrationTests extends OidcTestSupport {
 			assertThat(admin.mutate("POST", "/api/transfers/" + transfer.get("transfer").get("id").asText() + "/receive",
 				Map.of("requestId", UUID.randomUUID(), "allocations", List.of(Map.of("allocationId", allocation.get("id").asText(),
 					"receivedQuantity", "3", "shortageQuantity", "0", "damagedQuantity", "0")))).statusCode()).isEqualTo(200);
-			seller.login("other-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			seller.login("other-one", List.of("SALE_CREATE", "SALE_EDIT"), OidcTestProvider.Fault.NONE);
 			var request = sale("1", "20");
 			request.put("saleDate", today.minusDays(1).toString());
 			assertThat(seller.mutate("POST", "/api/sales/quote",
 				Map.of("lines", request.get("lines"), "saleDate", request.get("saleDate"))).statusCode()).isEqualTo(409);
 			assertThat(seller.mutate("POST", "/api/sales", request).statusCode()).isEqualTo(409);
 			request.put("saleDate", today.toString());
-			assertThat(seller.mutate("POST", "/api/sales", request).statusCode()).isEqualTo(201);
+			var posted = seller.mutate("POST", "/api/sales", request);
+			assertThat(posted.statusCode()).isEqualTo(201);
+			var id = seller.body(posted).get("id").asText();
+			assertThat(seller.mutate("POST", "/api/sales/" + id + "/date", Map.of("requestId", UUID.randomUUID(),
+				"saleDate", today.minusDays(1).toString(), "expectedVersion", 0, "reason", "Before arrival"))
+				.statusCode()).isEqualTo(409);
 			assertLedgers();
+		}
+	}
+
+	@Test
+	void editSalesDefaultsToCurrentWeekShowsAllScopedSellersAndRetainsWeekAndBranchFilters() throws Exception {
+		try (var admin = browser(); var seller = browser(); var colleague = browser(); var other = browser(); var manager = browser()) {
+			fixture(admin);
+			var monday = today.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
+			receive(admin, "10", "10", "WEEK_EDIT", null);
+			jdbc.update("UPDATE stock_batches SET received_date = ? WHERE lot_code = 'WEEK_EDIT'", monday.minusDays(8));
+			seller.login("sale-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			colleague.login("sale-two", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			var first = seller.body(seller.mutate("POST", "/api/sales", sale("1", "20"))).get("id").asText();
+			var second = colleague.body(colleague.mutate("POST", "/api/sales", sale("1", "30"))).get("id").asText();
+			var historical = sale("1", "40");
+			historical.put("saleDate", monday.minusDays(7).toString());
+			var previous = seller.body(seller.mutate("POST", "/api/sales", historical)).get("id").asText();
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", Map.of("requestId", UUID.randomUUID(),
+				"branchId", otherBranch, "receivedDate", today.toString(), "source", "Other farm", "currency", "KES",
+				"lines", List.of(receiptLine("2", "10", "OTHER_WEEK", null)))).statusCode()).isEqualTo(201);
+			other.login("other-one", List.of("SALE_CREATE"), OidcTestProvider.Fault.NONE);
+			var excluded = other.body(other.mutate("POST", "/api/sales", sale("1", "50"))).get("id").asText();
+			manager.login("manager-one", List.of("SALE_EDIT"), OidcTestProvider.Fault.NONE);
+			var current = manager.body(manager.get("/api/sales/edit"));
+			assertThat(current.get("start").asText()).isEqualTo(monday.toString());
+			assertThat(current.get("end").asText()).isEqualTo(today.toString());
+			assertThat(current.get("totalElements").asInt()).isEqualTo(2);
+			assertThat(current.get("sales").toString()).contains(first, second).doesNotContain(previous, excluded, "\"cost\"");
+			var old = manager.body(manager.get("/api/sales/edit?week=" + monday.minusDays(7) + "&branchId=" + branch));
+			assertThat(old.get("sales").toString()).contains(previous).doesNotContain(first, second);
+			assertThat(old.get("end").asText()).isEqualTo(monday.minusDays(1).toString());
+			assertThat(manager.get("/api/sales/edit?branchId=" + otherBranch).statusCode()).isEqualTo(403);
+			assertThat(manager.get("/ui/sales/edit?branchId=" + otherBranch).statusCode()).isEqualTo(403);
+			assertThat(manager.get("/api/sales/edit?week=" + today.plusDays(7)).statusCode()).isEqualTo(400);
+			assertThat(manager.get("/api/sales/edit?page=-1").statusCode()).isEqualTo(400);
+			assertThat(seller.get("/api/sales/edit").statusCode()).isEqualTo(403);
+			assertThat(seller.get("/ui/sales/edit").statusCode()).isEqualTo(403);
+			var page = manager.get("/ui/sales/edit");
+			assertThat(page.statusCode()).withFailMessage(page.body()).isEqualTo(200);
+			assertThat(page.body()).contains("Edit sale", "id=\"sale-week-filter\"", "value=\"" + monday + "\"", first, second);
+			assertThat(admin.body(admin.get("/api/sales/edit")).get("totalElements").asInt()).isEqualTo(3);
 		}
 	}
 

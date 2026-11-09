@@ -47,6 +47,56 @@ class CatalogueBrowserTests extends OidcTestSupport {
 	Path profile = Path.of("target", "browser-profiles", java.util.UUID.randomUUID().toString()).toAbsolutePath();
 
 	@Test
+	void producePickerUsesMatchingArtworkAndRetainsGenericFallback() throws Exception {
+		staff.bootstrap("admin", "Browser Administrator", OidcTestProvider.ADMIN_SUBJECT);
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var typeResponse = admin.mutate("POST", "/api/catalogue/types",
+				Map.of("code", "UI_ARTWORK", "name", "UI Artwork", "active", true));
+			assertThat(typeResponse.statusCode()).isEqualTo(201);
+			var typeId = admin.body(typeResponse).get("id").asText();
+			try {
+				var products = new java.util.LinkedHashMap<String, String>();
+				for (var entry : Map.of("Water Melon", "watermelon", "Green Capsicum", "capsicum",
+						"Butternut", "butternut", "Fresh Produce", "produce").entrySet()) {
+					var product = admin.mutate("POST", "/api/catalogue/products", Map.of(
+						"code", "UI_ART_" + products.size(), "name", entry.getKey(), "produceTypeId", typeId,
+						"baseUnitId", "10000000-0000-0000-0000-000000000001", "active", true));
+					assertThat(product.statusCode()).isEqualTo(201);
+					products.put(admin.body(product).get("id").asText(),
+						"produce".equals(entry.getValue()) ? "produce" : "produce-" + entry.getValue());
+				}
+				try (var chrome = new Chrome()) {
+					verifyPublicLogin(chrome);
+					chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/stock-entries"));
+					chrome.await("document.querySelector('.product-picker') !== null && document.readyState === 'complete'");
+					for (var entry : products.entrySet()) {
+						var card = "document.querySelector('[data-add-product][data-id=\"%s\"]')".formatted(entry.getKey());
+						assertThat(chrome.evaluate(card + ".querySelector('use').getAttribute('href')").asText())
+							.endsWith("#" + entry.getValue());
+						chrome.evaluate(card + ".click(); true");
+					}
+					assertThat(chrome.evaluate("document.querySelectorAll('#receipt-lines .receipt-line').length").asInt())
+						.isEqualTo(products.size());
+					chrome.evaluate("""
+						fetch('/assets/icons.svg').then(response => response.text()).then(text => {
+							const sprite = new DOMParser().parseFromString(text, 'image/svg+xml');
+							window.produceArtworkValid = sprite.querySelector('parsererror') === null &&
+								['watermelon', 'capsicum', 'butternut'].every(type =>
+									sprite.getElementById('produce-' + type)?.children.length > 0);
+						}); true
+						""");
+					chrome.await("window.produceArtworkValid === true");
+				}
+			}
+			finally {
+				jdbc.update("DELETE FROM products WHERE produce_type_id = ?", java.util.UUID.fromString(typeId));
+				jdbc.update("DELETE FROM produce_types WHERE id = ?", java.util.UUID.fromString(typeId));
+			}
+		}
+	}
+
+	@Test
 	void revokedAndMissingSessionsSignInAgainWithoutPostingOrShowingSessionAlerts() throws Exception {
 		staff.bootstrap("admin", "Browser Administrator", OidcTestProvider.ADMIN_SUBJECT);
 		PROVIDER.identity(OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS, OidcTestProvider.Fault.NONE);
@@ -140,7 +190,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 					(() => { const f = document.querySelector('form[data-resource="products"]');
 					f.elements.name.value = 'Edited UI Product'; f.requestSubmit(); return true; })()
 					""");
-				chrome.await("document.querySelector('#products table').innerText.includes('Edited UI Product')");
+				chrome.await("document.querySelector('#products table')?.innerText.includes('Edited UI Product') === true && document.readyState === 'complete'");
 				chrome.ready();
 				chrome.evaluate("""
 					(() => { const f = document.querySelector('form[data-resource="packaging"]');
@@ -466,7 +516,8 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		var recoveredStock = admin.mutate("POST", "/api/inventory/receipts", Map.of("requestId", java.util.UUID.randomUUID(),
 			"branchId", branchId, "receivedDate", saleDate, "source", "Downtime receipt", "currency", "KES",
 			"lines", java.util.List.of(Map.of("productId", productId, "unitId", "10000000-0000-0000-0000-000000000001",
-				"quantity", "1", "purchaseUnitCost", "10", "lotCode", "UI_BACKDATED", "expiryDate", saleDate))));
+				"quantity", "1", "purchaseUnitCost", "10", "lotCode", "UI_BACKDATED",
+				"expiryDate", java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString()))));
 		assertThat(recoveredStock.statusCode()).withFailMessage(recoveredStock.body()).isEqualTo(201);
 		loginChrome(chrome, "ui-sales-subject", java.util.List.of("SALE_CREATE"), "UI Salesperson");
 		navigateSidebar(chrome, "sales", "/ui/sales");
@@ -495,6 +546,31 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			.contains("Sale date (UTC): " + saleDate, "Recorded at:", "UI_BACKDATED");
 		var recoveredReport = admin.body(admin.get("/api/sales/reports/sales?start=" + saleDate + "&end=" + saleDate));
 		assertThat(recoveredReport.get("totals").get(0).get("revenue").asText()).isEqualTo("60.00");
+		var historicalReceipt = chrome.evaluate("location.pathname").asText();
+		assertThat(chrome.evaluate("document.querySelector('#sale-date-form') === null").asBoolean()).isTrue();
+		loginChrome(chrome, OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS, "Browser Administrator");
+		navigateSidebar(chrome, "sales", "/ui/sales/edit");
+		assertThat(chrome.evaluate("document.querySelector('#sale-week-filter').elements.week.value").asText())
+			.isEqualTo(java.time.LocalDate.now(java.time.ZoneOffset.UTC)
+				.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)).toString());
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#sale-week-filter');
+			f.elements.week.value = '%s'; f.requestSubmit(); return true; })()
+			""".formatted(saleDate));
+		chrome.await("new URLSearchParams(location.search).get('week') === '%s' && document.readyState === 'complete'".formatted(saleDate));
+		chrome.evaluate("document.querySelector('#editable-sales a[href=\"%s#date-correction\"]').click(); true".formatted(historicalReceipt));
+		chrome.await("document.querySelector('#sale-date-form') !== null && document.querySelector('#date-correction').open && document.readyState === 'complete'");
+		var correctedDate = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString();
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#sale-date-form');
+			f.closest('details').open = true; f.elements.saleDate.value = '%s';
+			f.elements.reason.value = 'UI historical sale date corrected'; f.requestSubmit(); return true; })()
+			""".formatted(correctedDate));
+		chrome.await("document.querySelector('#sale-date')?.textContent === '%s' && document.readyState === 'complete'".formatted(correctedDate));
+		assertThat(chrome.evaluate("document.querySelector('#sale-receipt').textContent").asText())
+			.contains("UI historical sale date corrected", "UI_BACKDATED", "KES 60.00");
+		assertThat(admin.body(admin.get("/api/sales/reports/sales?start=" + saleDate + "&end=" + saleDate))
+			.get("totals").size()).isZero();
 		loginChrome(chrome, OidcTestProvider.ADMIN_SUBJECT, ALL_PERMISSIONS, "Browser Administrator");
 	}
 

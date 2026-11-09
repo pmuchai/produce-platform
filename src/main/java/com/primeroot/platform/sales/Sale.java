@@ -17,6 +17,7 @@ import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import jakarta.persistence.Version;
 import org.springframework.data.domain.Persistable;
 
 @Entity
@@ -29,7 +30,7 @@ public class Sale implements Persistable<UUID> {
 	@Column(nullable = false, length = 120) private String sellerName;
 	@Column(nullable = false, length = 120) private String branchName;
 	@Column(nullable = false, length = 3) private String currency;
-	@Column(nullable = false, updatable = false) private LocalDate saleDate;
+	@Column(nullable = false) private LocalDate saleDate;
 	@Column(length = 120) private String customer;
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false, length = 16) private PaymentMethod paymentMethod;
@@ -38,6 +39,7 @@ public class Sale implements Persistable<UUID> {
 	@Column(nullable = false, precision = 38, scale = 6) private BigDecimal cost;
 	@ManyToOne private StockOperation voidOperation;
 	@Column(length = 120) private String refundReference;
+	@Version private long version;
 	@Transient private boolean fresh = true;
 
 	protected Sale() {
@@ -64,6 +66,8 @@ public class Sale implements Persistable<UUID> {
 		refundReference = reference;
 	}
 
+	void correctDate(LocalDate date) { saleDate = date; }
+
 	@PostLoad @PostPersist void persisted() { fresh = false; }
 	@Override public boolean isNew() { return fresh; }
 	@Override public UUID getId() { return id; }
@@ -73,6 +77,7 @@ public class Sale implements Persistable<UUID> {
 	public String getBranchName() { return branchName; }
 	public String getCurrency() { return currency; }
 	public LocalDate getSaleDate() { return saleDate; }
+	public long getVersion() { return version; }
 	public String getCustomer() { return customer; }
 	public PaymentMethod getPaymentMethod() { return paymentMethod; }
 	public String getPaymentReference() { return paymentReference; }

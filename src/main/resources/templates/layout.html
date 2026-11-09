@@ -27,11 +27,12 @@
       <summary><svg th:replace="~{layout :: icon('home')}"></svg><span>Dashboard</span></summary>
       <ul class="nav-children"><li><a th:href="@{/home}" th:attr="aria-current=${page == 'dashboard' ? 'page' : null}">Overview</a></li></ul>
     </details>
-    <details class="nav-group" id="nav-sales" th:if="${createSale}" th:open="${navGroup == 'sales'}">
+    <details class="nav-group" id="nav-sales" th:if="${createSale or editSale}" th:open="${navGroup == 'sales'}">
       <summary><svg th:replace="~{layout :: icon('sales')}"></svg><span>Sales</span></summary>
       <ul class="nav-children">
         <li><a th:if="${createSale}" th:href="@{/ui/sales}" th:attr="aria-current=${page == 'sale' ? 'page' : null}">New sale</a>
           <span th:unless="${createSale}" aria-disabled="true">New sale <small>No access</small></span></li>
+        <li th:if="${editSale}"><a th:href="@{/ui/sales/edit}" th:attr="aria-current=${page == 'sale-edit' ? 'page' : null}">Edit sale</a></li>
       </ul>
     </details>
     <details class="nav-group" id="nav-stock" th:if="${canStock}" th:open="${navGroup == 'stock'}">

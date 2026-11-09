@@ -14,6 +14,7 @@ import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 public final class SalesDtos {
@@ -46,6 +47,23 @@ public final class SalesDtos {
 	public record VoidRequest(@NotNull UUID requestId, @NotBlank @Size(max = 500) String reason,
 		@AssertTrue(message = "Confirm that all goods were returned and the full refund was completed manually")
 		boolean returnedAndRefunded, @Size(max = 120) String refundReference) {
+	}
+
+	public record DateCorrectionRequest(@NotNull UUID requestId, @NotNull LocalDate saleDate,
+		@NotNull @PositiveOrZero Long expectedVersion, @NotBlank @Size(max = 500) String reason) {
+	}
+
+	public record DateCorrection(LocalDate previousDate, LocalDate correctedDate, String actor,
+		String reason, Instant correctedAt) {
+	}
+
+	public record EditSale(UUID id, String receiptNumber, String branch, String seller, String customer,
+		LocalDate saleDate, String currency, @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal total,
+		String status) {
+	}
+
+	public record EditPage(List<EditSale> sales, List<Option> branches, LocalDate start, LocalDate end,
+		int page, long totalElements) {
 	}
 
 	public record Option(UUID id, String label) {
@@ -81,6 +99,7 @@ public final class SalesDtos {
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal total,
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal cost,
 		@JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal grossProfit,
-		Instant voidedAt, UUID voidedBy, String voidReason, String refundReference, List<Line> lines) {
+		Instant voidedAt, UUID voidedBy, String voidReason, String refundReference, List<Line> lines,
+		long version, boolean canCorrectDate, List<DateCorrection> dateCorrections) {
 	}
 }

@@ -34,7 +34,7 @@ class TransferIntegrationTests extends OidcTestSupport {
 
 	@BeforeEach
 	void reset() {
-		for (var table : List.of("audit_events", "transfer_allocations", "stock_transfers", "sale_allocations", "sale_lines",
+		for (var table : List.of("audit_events", "sale_date_corrections", "transfer_allocations", "stock_transfers", "sale_allocations", "sale_lines",
 				"sales", "stock_movements", "stock_batches", "stock_operations", "stock_thresholds", "product_packaging",
 				"products", "product_classifications", "produce_types", "user_branches", "staff_users", "branches")) {
 			jdbc.update("DELETE FROM " + table);

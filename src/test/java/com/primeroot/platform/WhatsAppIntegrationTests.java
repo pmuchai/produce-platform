@@ -69,7 +69,7 @@ class WhatsAppIntegrationTests extends OidcTestSupport {
 
 	@BeforeEach
 	void resetData() {
-		for (var table : List.of("whatsapp_messages", "whatsapp_challenges", "whatsapp_links", "audit_events",
+		for (var table : List.of("whatsapp_messages", "whatsapp_challenges", "whatsapp_links", "audit_events", "sale_date_corrections",
 				"transfer_allocations", "stock_transfers", "sale_allocations", "sale_lines", "sales", "stock_movements",
 				"stock_batches", "stock_operations", "stock_thresholds", "product_packaging", "products",
 				"product_classifications", "produce_types", "user_branches", "staff_users", "branches")) {
