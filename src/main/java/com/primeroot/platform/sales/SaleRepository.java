@@ -19,7 +19,7 @@ public interface SaleRepository extends JpaRepository<Sale, UUID> {
 	List<String> customers(UUID branch, org.springframework.data.domain.Pageable pageable);
 
 	@Query(value = """
-		select s from Sale s join fetch s.branch
+		select s from Sale s join fetch s.branch left join fetch s.voidOperation
 		where s.branch.id in :branches and s.saleDate between :start and :end
 		order by s.saleDate desc, s.id
 		""", countQuery = """
