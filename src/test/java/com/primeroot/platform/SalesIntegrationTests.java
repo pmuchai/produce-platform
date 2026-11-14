@@ -71,8 +71,8 @@ class SalesIntegrationTests extends OidcTestSupport {
 			assertThat(option.get("baseUnit").asText()).isEqualTo("KG");
 			var page = seller.get("/ui/sales");
 			assertThat(page.statusCode()).withFailMessage(page.body()).isEqualTo(200);
-			assertThat(page.body()).contains("Current sale", "On hand: 6 KG", "Full payment received")
-				.doesNotContain("Phase 6", "Stock is deducted now", "id=\"nav-dashboard\"");
+			assertThat(page.body()).contains("Current sale", "On hand: 6 KG", "Complete sale")
+				.doesNotContain("paymentConfirmed", "Full payment received", "Phase 6", "Stock is deducted now", "id=\"nav-dashboard\"");
 			var quote = seller.body(seller.mutate("POST", "/api/sales/quote",
 				Map.of("lines", List.of(saleLine("1.000001", "0.015"), saleLine("2.33", "12.345")))));
 			assertThat(quote.get("lines").get(0).get("total").asText()).isEqualTo("0.02");

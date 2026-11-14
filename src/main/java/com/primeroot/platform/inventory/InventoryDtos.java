@@ -22,6 +22,12 @@ public final class InventoryDtos {
 	private InventoryDtos() {
 	}
 
+	public record ReferenceRequest(@NotNull UUID requestId, @NotNull UUID branchId, @NotNull LocalDate receivedDate) {
+	}
+
+	public record ReceiptReference(String reference) {
+	}
+
 	public record ReceiptRequest(@NotNull UUID requestId, @NotNull UUID branchId,
 		@NotNull LocalDate receivedDate, @NotBlank @Size(max = 120) String source,
 		@NotBlank @Pattern(regexp = "[A-Za-z]{3}") String currency,

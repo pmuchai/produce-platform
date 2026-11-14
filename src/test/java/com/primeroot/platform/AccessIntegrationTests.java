@@ -546,7 +546,7 @@ class AccessIntegrationTests extends OidcTestSupport {
 	void migrationsRetainExternalIdentitySchemaAndEnforceForeignKeys() {
 		assertThat(jdbc.queryForList(
 			"SELECT \"version\" FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", String.class))
-			.containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15");
+			.containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16");
 		assertThat(jdbc.queryForList(
 			"SELECT UPPER(table_name) FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA()", String.class))
 			.contains("BRANCHES", "STAFF_USERS", "USER_BRANCHES", "AUDIT_EVENTS", "STAFF_ACCESS_REQUESTS",

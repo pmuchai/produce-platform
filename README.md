@@ -861,6 +861,15 @@ mutation forms, even for administrators.
   date, source/delivery reference, optional notes and 1–50 product lines.
   Every line creates its own batch with a lot reference and optional
   expiry/best-before date. Reusing a lot label does not merge separate deliveries.
+  Selecting a destination branch reserves an editable delivery reference such as
+  `DEL-MAIN-20261114-001`, using the received date and a branch/day sequence.
+  An already-selected branch generates on page load. Batch references append a
+  stable item number, for example `DEL-MAIN-20261114-001-01`. Changing branch/date
+  refreshes only automatic references; manual edits are preserved. Editing the
+  delivery reference also updates automatic batch references. Removed item
+  numbers are not reused. Resetting or successfully posting starts a fresh
+  delivery; retries retain the existing references. Abandoned forms can leave
+  gaps in the sequence. Existing receipts and manual/API references are unchanged.
 - Grades are selected per receiving line, not when creating a product.
   Define one product such as **Local red onions**, and grades such as **Small**,
   **Medium** and **Large** under its produce type. Split a delivery into three
@@ -1005,6 +1014,7 @@ digits; responses retain decimal strings.
 | --- | --- | --- |
 | GET | `/api/inventory?branchId=...&start=YYYY-MM-DD&end=YYYY-MM-DD&page=0` | `STOCK_VIEW`; optional branch and dates, zero-based movement page |
 | GET | `/api/inventory/batches?branchId=...&search=...&page=0` | `STOCK_VIEW`; scoped batch details and receipt costs, lot/product search, at most 100 rows per page |
+| POST | `/api/inventory/receipt-references` | `STOCK_RECEIVE`; reserve an editable delivery reference using `requestId`, `branchId`, `receivedDate`; idempotent and serialized per branch |
 | POST | `/api/inventory/receipts` | `STOCK_RECEIVE`; create batches and movements; 201 |
 | POST | `/api/inventory/spoilage` | `STOCK_SPOILAGE`; positive loss quantity |
 | POST | `/api/inventory/adjustments` | `STOCK_ADJUST`; signed quantity delta |
@@ -1059,7 +1069,7 @@ Changing staff scope continues to revoke existing sessions as in Phase 1.
 or a past date (1970-01-01 onward) so a completed sale can be recorded after
 downtime. Future dates are rejected by the server. Both quote and sale APIs
 accept optional `saleDate`; omission preserves the today default for existing
-clients. Changing the date invalidates the quote and payment confirmation.
+clients. Changing the date invalidates the quote.
 
 The selected date is shown separately from the immutable actual **Recorded
 at** timestamp on the receipt. Backdated sales have an additional `SALE_BACKDATED`
@@ -1119,8 +1129,8 @@ Valid cart edits refresh totals automatically. **Review total** also validates
 the combined quantities across all lines against
 stock eligible on the selected sale date and computes the rounded payable amount
 and each line total on the server, without posting stock or reserving it.
-Changing lines or the date clears payment confirmation. Receive the
-full payment, confirm it and post. A concurrent checkout can change availability;
+Changing lines or the date invalidates the quote. All sales are recorded as fully
+paid; collect payment and choose **Complete sale**. A concurrent checkout can change availability;
 posting rechecks everything atomically.
 
 Cash, manually recorded M-Pesa and bank payments are supported. Noncash

@@ -28,8 +28,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/inventory")
 public class InventoryController {
 	private final InventoryService inventory;
+	private final ReceiptReferenceService references;
 
-	public InventoryController(InventoryService inventory) { this.inventory = inventory; }
+	public InventoryController(InventoryService inventory, ReceiptReferenceService references) {
+		this.inventory = inventory;
+		this.references = references;
+	}
+
+	@PostMapping("/receipt-references")
+	public InventoryDtos.ReceiptReference reference(@Valid @RequestBody InventoryDtos.ReferenceRequest request) {
+		return references.reserve(request);
+	}
 
 	@GetMapping
 	public Snapshot list(@RequestParam(required = false) UUID branchId,

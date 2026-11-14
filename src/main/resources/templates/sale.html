@@ -51,8 +51,7 @@
       </div>
       <select name="paymentMethod" class="sr-only" aria-label="Payment method" tabindex="-1"><option value="CASH">Cash</option><option value="MPESA">M-Pesa</option><option value="BANK">Bank</option></select>
       <label id="payment-reference-label" hidden>Payment reference<input name="paymentReference" maxlength="120"></label>
-      <label class="check payment-confirmation"><input name="paymentConfirmed" type="checkbox" required>Full payment received</label>
-      <button type="submit" class="record-sale"><svg th:replace="~{layout :: icon('check')}"></svg>Record sale</button>
+      <button type="submit" class="record-sale"><svg th:replace="~{layout :: icon('check')}"></svg>Complete sale</button>
       <span class="form-message" role="status" aria-live="polite"></span>
     </form>
   </div>

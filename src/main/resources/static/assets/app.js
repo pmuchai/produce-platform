@@ -355,7 +355,6 @@
     output.className = '';
     output.textContent = 'Calculate the total';
     saleLines.querySelectorAll('.line-total').forEach(total => { total.textContent = '--'; });
-    saleForm.elements.paymentConfirmed.checked = false;
     saleCount();
     quoteTimer = setTimeout(() => {
       if (!document.getElementById('quote-sale').disabled
@@ -435,7 +434,6 @@
       button.classList.toggle('selected', button.dataset.payment === method);
       button.setAttribute('aria-pressed', String(button.dataset.payment === method));
     });
-    saleForm.elements.paymentConfirmed.checked = false;
   });
   document.querySelectorAll('[data-payment]').forEach(button => {
     button.addEventListener('click', () => {
@@ -458,7 +456,6 @@
     const fingerprint = JSON.stringify(input);
     const output = document.getElementById('sale-total');
     quotedLines = null;
-    saleForm.elements.paymentConfirmed.checked = false;
     saleLines.querySelectorAll('.line-total').forEach(total => { total.textContent = '--'; });
     saleCount();
     button.disabled = true;
@@ -580,18 +577,96 @@
   receiptLines?.addEventListener('change', event => {
     if (event.target.name === 'productId') updateReceiptGrades(event.target.closest('.receipt-line'));
   });
+  const receiptForm = document.getElementById('stock-receipt');
+  let nextReceiptLine = 0;
+  let referenceGeneration = 0;
+  const referenceRequests = new Map();
+  const canGenerateReference = field => field.dataset.manualReference !== 'true'
+    && (!field.value || field.value === field.dataset.generatedReference);
+  const setGeneratedReference = (field, value) => {
+    if (!canGenerateReference(field)) return;
+    field.value = value;
+    field.dataset.generatedReference = value;
+  };
+  const updateBatchReferences = () => {
+    if (!receiptForm) return;
+    const source = receiptForm.elements.source.value.trim();
+    receiptLines.querySelectorAll('.receipt-line').forEach(line => {
+      line.dataset.referenceLine ||= String(++nextReceiptLine);
+      const suffix = `-${line.dataset.referenceLine.padStart(2, '0')}`;
+      setGeneratedReference(line.querySelector('[name="lotCode"]'),
+        source ? source.slice(0, 64 - suffix.length) + suffix : '');
+    });
+  };
+  const updateDeliveryReference = async () => {
+    if (!receiptForm) return;
+    const generation = ++referenceGeneration;
+    const source = receiptForm.elements.source;
+    const branchId = receiptForm.elements.branchId.value;
+    const receivedDate = receiptForm.elements.receivedDate.value;
+    source.setCustomValidity('');
+    if (!canGenerateReference(source)) {
+      updateBatchReferences();
+      return;
+    }
+    setGeneratedReference(source, '');
+    updateBatchReferences();
+    if (!branchId || !receivedDate || !receiptForm.elements.receivedDate.checkValidity()) return;
+    const key = `${branchId}/${receivedDate}`;
+    let reservation;
+    source.setCustomValidity('Delivery reference is being generated.');
+    try {
+      if (!referenceRequests.has(key)) referenceRequests.set(key, {requestId: newRequestId()});
+      reservation = referenceRequests.get(key);
+      reservation.pending ||= request('api/inventory/receipt-references', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({requestId: reservation.requestId, branchId, receivedDate})
+      });
+      const result = await reservation.pending;
+      if (generation !== referenceGeneration) return;
+      setGeneratedReference(source, result.reference);
+      source.setCustomValidity('');
+      updateBatchReferences();
+    } catch (error) {
+      if (reservation) delete reservation.pending;
+      if (generation !== referenceGeneration) return;
+      source.setCustomValidity('');
+      showNotice('Could not generate a delivery reference. Enter one manually or select the branch again to retry.', true);
+    }
+  };
+  if (receiptForm) {
+    receiptForm.elements.branchId.addEventListener('change', updateDeliveryReference);
+    receiptForm.elements.receivedDate.addEventListener('change', updateDeliveryReference);
+    receiptForm.addEventListener('input', event => {
+      if (!['source', 'lotCode'].includes(event.target.name)) return;
+      event.target.dataset.manualReference = 'true';
+      if (event.target.name === 'source') {
+        ++referenceGeneration;
+        event.target.setCustomValidity('');
+        updateBatchReferences();
+      }
+    });
+  }
   const addReceiptLine = () => {
     if (receiptLines.children.length >= 50) {
       showNotice('A receipt can contain at most 50 product lines.', true);
       return;
     }
     const line = receiptLines.firstElementChild.cloneNode(true);
-    line.querySelectorAll('input, select').forEach(field => { field.value = ''; });
+    delete line.dataset.referenceLine;
+    line.querySelectorAll('input, select').forEach(field => {
+      field.value = '';
+      delete field.dataset.manualReference;
+      delete field.dataset.generatedReference;
+    });
     line.querySelectorAll('details').forEach(details => { details.open = false; });
     updateReceiptGrades(line);
     receiptLines.append(line);
+    updateBatchReferences();
     return line;
   };
+  updateBatchReferences();
+  if (receiptForm) updateDeliveryReference();
   document.getElementById('add-receipt-line')?.addEventListener('click', () => {
     addReceiptLine()?.querySelector('[name="productId"]').focus();
   });
@@ -669,8 +744,7 @@
           line.querySelector('[name="unitPrice"]').focus({preventScroll: window.matchMedia('(min-width: 1151px)').matches});
         } else {
           updateReceiptGrades(line);
-          const source = document.getElementById('stock-receipt').elements.source.value;
-          if (source.length <= 64 && !line.querySelector('[name="lotCode"]').value) line.querySelector('[name="lotCode"]').value = source;
+          updateBatchReferences();
           line.querySelector('[name="quantity"]').focus({preventScroll: window.matchMedia('(min-width: 1151px)').matches});
         }
       });
@@ -732,7 +806,19 @@
       }
       if (form.dataset.stock === 'receipts') {
         while (receiptLines.children.length > 1) receiptLines.lastElementChild.remove();
-        setTimeout(() => receiptLines.querySelectorAll('.receipt-line').forEach(updateReceiptGrades), 0);
+        ++referenceGeneration;
+        referenceRequests.clear();
+        nextReceiptLine = 0;
+        form.querySelectorAll('[name="source"], [name="lotCode"]').forEach(field => {
+          delete field.dataset.manualReference;
+          delete field.dataset.generatedReference;
+          field.setCustomValidity('');
+        });
+        delete receiptLines.firstElementChild.dataset.referenceLine;
+        setTimeout(() => {
+          receiptLines.querySelectorAll('.receipt-line').forEach(updateReceiptGrades);
+          updateDeliveryReference();
+        }, 0);
       }
     });
   });
