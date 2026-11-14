@@ -427,12 +427,8 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			var capture = chrome.command("Page.captureScreenshot", Map.of("format", "png", "captureBeyondViewport", true));
 			Files.write(Path.of(saleScreenshot), java.util.Base64.getDecoder().decode(capture.get("data").asText()));
 		}
+		assertThat(chrome.evaluate("document.querySelector('[name=\"paymentConfirmed\"]') === null").asBoolean()).isTrue();
 		chrome.evaluate("document.querySelector('#sale-form').requestSubmit(); true");
-		assertThat(chrome.evaluate("location.pathname").asText()).isEqualTo("/ui/sales");
-		chrome.evaluate("""
-			const form = document.querySelector('#sale-form'); form.elements.paymentConfirmed.checked = true;
-			form.requestSubmit(); true
-			""");
 		chrome.await("document.querySelector('#sale-receipt') !== null && document.readyState === 'complete'");
 		assertThat(chrome.evaluate("document.querySelector('#sale-receipt').innerText").asText()).contains("Walk-ins", "KES 150.00", "PAID");
 		var firstReceipt = chrome.evaluate("location.pathname").asText();
@@ -450,7 +446,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		assertThat(chrome.evaluate("document.querySelector('#sale-form').elements.paymentReference.required").asBoolean()).isTrue();
 		assertThat(chrome.evaluate("document.querySelector('[data-payment=\"MPESA\"]').getAttribute('aria-pressed')").asText()).isEqualTo("true");
 		chrome.evaluate("""
-			(() => { const f = document.querySelector('#sale-form'); f.elements.paymentConfirmed.checked = true;
+			(() => { const f = document.querySelector('#sale-form');
 			f.requestSubmit(); return true; })()
 			""");
 		chrome.await("document.querySelector('#sale-receipt') !== null && document.readyState === 'complete'");
@@ -547,16 +543,15 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			""".formatted(productId));
 		chrome.await("document.querySelector('#sale-total').textContent.includes('Total: KES 60.00')");
 		var changedDate = chrome.evaluate("""
-			(() => { const f = document.querySelector('#sale-form'); f.elements.paymentConfirmed.checked = true;
+			(() => { const f = document.querySelector('#sale-form');
 			f.elements.saleDate.value = '%s'; f.elements.saleDate.dispatchEvent(new Event('input'));
-			return {confirmed: f.elements.paymentConfirmed.checked, total: document.querySelector('#sale-total').textContent}; })()
+			return {total: document.querySelector('#sale-total').textContent}; })()
 			""".formatted(saleDate));
-		assertThat(changedDate.get("confirmed").asBoolean()).isFalse();
 		assertThat(changedDate.get("total").asText()).contains("Calculate the total");
 		chrome.evaluate("document.querySelector('#quote-sale').click(); true");
 		chrome.await("document.querySelector('#sale-total').textContent.includes('Total: KES 60.00')");
 		chrome.evaluate("""
-			(() => { const f = document.querySelector('#sale-form'); f.elements.paymentConfirmed.checked = true;
+			(() => { const f = document.querySelector('#sale-form');
 			f.requestSubmit(); return true; })()
 			""");
 		chrome.await("document.querySelector('#sale-receipt') !== null && document.readyState === 'complete'");
@@ -908,6 +903,55 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			"active", true, "produceTypeId", otherType, "kind", "GRADE"));
 		navigateSidebar(chrome, "stock", "/ui/stock-entries");
 		chrome.await("document.querySelector('#stock-receipt') !== null && document.readyState === 'complete'");
+		assertThat(chrome.evaluate("document.querySelector('#stock-receipt').elements.source.value").asText()).isEmpty();
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#stock-receipt'); f.elements.branchId.value = '%s';
+			f.elements.branchId.dispatchEvent(new Event('change')); return true; })()
+			""".formatted(branchId));
+		chrome.await("document.querySelector('#stock-receipt').elements.source.value.startsWith('DEL-')");
+		var reference = chrome.evaluate("document.querySelector('#stock-receipt').elements.source.value").asText();
+		assertThat(chrome.evaluate("document.querySelector('[name=\"lotCode\"]').value").asText()).isEqualTo(reference + "-01");
+		var receivedDate = chrome.evaluate("document.querySelector('#stock-receipt').elements.receivedDate.value").asText();
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#stock-receipt'); f.elements.branchId.value = '';
+			f.elements.branchId.dispatchEvent(new Event('change')); return true; })()
+			""");
+		assertThat(chrome.evaluate("document.querySelector('#stock-receipt').elements.source.value").asText()).isEmpty();
+		assertThat(chrome.evaluate("document.querySelector('[name=\"lotCode\"]').value").asText()).isEmpty();
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#stock-receipt'); f.elements.branchId.value = '%s';
+			f.elements.branchId.dispatchEvent(new Event('change')); return true; })()
+			""".formatted(branchId));
+		chrome.await("document.querySelector('#stock-receipt').elements.source.value === '%s'".formatted(reference));
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#stock-receipt'); f.elements.receivedDate.value = '%s';
+			f.elements.receivedDate.dispatchEvent(new Event('change')); return true; })()
+			""".formatted(java.time.LocalDate.parse(receivedDate).minusDays(1)));
+		chrome.await("document.querySelector('#stock-receipt').elements.source.value.includes('%s')"
+			.formatted(java.time.LocalDate.parse(receivedDate).minusDays(1).toString().replace("-", "")));
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#stock-receipt'); f.elements.receivedDate.value = '%s';
+			f.elements.receivedDate.dispatchEvent(new Event('change')); return true; })()
+			""".formatted(receivedDate));
+		chrome.await("document.querySelector('#stock-receipt').elements.source.value === '%s'".formatted(reference));
+		chrome.evaluate("""
+			(() => { const f = document.querySelector('#stock-receipt'); f.elements.source.value = 'SUPPLIER-REF';
+			f.elements.source.dispatchEvent(new Event('input', {bubbles:true}));
+			document.querySelector('#add-receipt-line').click();
+			const lot = document.querySelector('[name="lotCode"]'); lot.value = 'CUSTOM-LOT';
+			lot.dispatchEvent(new Event('input', {bubbles:true}));
+			f.elements.receivedDate.value = '%s'; f.elements.receivedDate.dispatchEvent(new Event('change')); return true; })()
+			""".formatted(java.time.LocalDate.parse(receivedDate).minusDays(1)));
+		assertThat(chrome.evaluate("document.querySelector('#stock-receipt').elements.source.value").asText()).isEqualTo("SUPPLIER-REF");
+		assertThat(chrome.evaluate("document.querySelector('[name=\"lotCode\"]').value").asText()).isEqualTo("CUSTOM-LOT");
+		assertThat(chrome.evaluate("document.querySelectorAll('[name=\"lotCode\"]')[1].value").asText()).isEqualTo("SUPPLIER-REF-02");
+		chrome.evaluate("document.querySelectorAll('[data-remove-line]')[1].click(); document.querySelector('#add-receipt-line').click(); true");
+		assertThat(chrome.evaluate("document.querySelectorAll('[name=\"lotCode\"]')[1].value").asText()).isEqualTo("SUPPLIER-REF-03");
+		chrome.command("Page.navigate", Map.of("url", "http://localhost:" + port + "/ui/stock-entries?branchId=" + branchId));
+		chrome.await("document.querySelector('#stock-receipt')?.elements.source.value.startsWith('DEL-') === true && document.readyState === 'complete'");
+		var beforeReset = chrome.evaluate("document.querySelector('#stock-receipt').elements.source.value").asText();
+		chrome.evaluate("document.querySelector('#stock-receipt').reset(); true");
+		chrome.await("document.querySelector('#stock-receipt').elements.source.value.startsWith('DEL-') && document.querySelector('#stock-receipt').elements.source.value !== '%s'".formatted(beforeReset));
 		assertThat(chrome.evaluate("getComputedStyle(document.querySelector('.stock-entry-layout')).gridTemplateColumns.split(' ').length").asInt()).isEqualTo(2);
 		chrome.evaluate("""
 			(() => { const form = document.querySelector('#stock-receipt');
@@ -918,7 +962,7 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		assertThat(chrome.evaluate("document.querySelectorAll('#receipt-lines .receipt-line').length").asInt()).isEqualTo(2);
 		assertThat(chrome.evaluate("""
 			[...document.querySelectorAll('#receipt-lines [name="gradeId"]')].every(field => field.value === '')
-			&& [...document.querySelectorAll('#receipt-lines [name="lotCode"]')].every(field => field.value === 'UI shared delivery')
+			&& [...document.querySelectorAll('#receipt-lines [name="lotCode"]')].every((field, index) => field.value === 'UI shared delivery-' + String(index + 1).padStart(2, '0'))
 			""").asBoolean()).isTrue();
 		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
 			"width", 390, "height", 844, "deviceScaleFactor", 1, "mobile", true));
@@ -1016,14 +1060,14 @@ class CatalogueBrowserTests extends OidcTestSupport {
 			f.elements.branchId.value = '%s'; f.elements.productId.value = '%s';
 			f.elements.minimumQuantity.value = '7'; f.requestSubmit(); return true; })()
 			""".formatted(branchId, productId));
-		chrome.await("document.querySelector('#stock-balances').innerText.includes('At or below minimum')");
+		chrome.await("document.querySelector('#stock-balances')?.innerText.includes('At or below minimum') === true");
 		chrome.ready();
 		chrome.evaluate("""
 			(() => { document.querySelector('[data-threshold]').click();
 			const f = document.querySelector('form[data-stock="thresholds"]');
 			f.elements.minimumQuantity.value = '0'; f.requestSubmit(); return true; })()
 			""");
-		chrome.await("!document.querySelector('#stock-balances').innerText.includes('At or below minimum')");
+		chrome.await("document.querySelector('#stock-balances')?.innerText.includes('At or below minimum') === false");
 		chrome.ready();
 		chrome.evaluate("""
 			(() => { const f = document.querySelector('form[data-stock="spoilage"]');

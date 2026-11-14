@@ -40,6 +40,91 @@ class InventoryIntegrationTests extends OidcTestSupport {
 	}
 
 	@Test
+	void receiptReferencesAreScopedReservedConcurrentlyAndStableOnRetries() throws Exception {
+		try (var admin = browser(); var second = browser(); var viewer = browser(); var anonymous = browser()) {
+			admin.adminLogin();
+			second.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var other = branch(admin, "OTHER");
+			var path = "/api/inventory/receipt-references";
+			var date = today.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+			var request = Map.of("requestId", UUID.randomUUID(), "branchId", branch, "receivedDate", today.toString());
+			var response = admin.mutate("POST", path, request);
+			assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(200);
+			assertThat(admin.body(response).get("reference").asText()).isEqualTo("DEL-MAIN-" + date + "-001");
+			assertThat(admin.body(admin.mutate("POST", path, request)).get("reference").asText())
+				.isEqualTo("DEL-MAIN-" + date + "-001");
+			assertThat(admin.mutate("POST", path, Map.of("requestId", request.get("requestId"),
+				"branchId", branch, "receivedDate", today.minusDays(1).toString())).statusCode()).isEqualTo(409);
+			try (var pool = Executors.newFixedThreadPool(2)) {
+				var start = new CountDownLatch(1);
+				var one = pool.submit(() -> { start.await(); return admin.body(admin.mutate("POST", path,
+					Map.of("requestId", UUID.randomUUID(), "branchId", branch, "receivedDate", today.toString())))
+					.get("reference").asText(); });
+				var two = pool.submit(() -> { start.await(); return second.body(second.mutate("POST", path,
+					Map.of("requestId", UUID.randomUUID(), "branchId", branch, "receivedDate", today.toString())))
+					.get("reference").asText(); });
+				start.countDown();
+				assertThat(Set.of(one.get(20, TimeUnit.SECONDS), two.get(20, TimeUnit.SECONDS)))
+					.containsExactlyInAnyOrder("DEL-MAIN-" + date + "-002", "DEL-MAIN-" + date + "-003");
+			}
+			assertThat(admin.body(admin.mutate("POST", path, Map.of("requestId", UUID.randomUUID(),
+				"branchId", other, "receivedDate", today.toString()))).get("reference").asText())
+				.isEqualTo("DEL-OTHER-" + date + "-001");
+			assertThat(admin.body(admin.mutate("POST", path, Map.of("requestId", UUID.randomUUID(),
+				"branchId", branch, "receivedDate", today.minusDays(1).toString()))).get("reference").asText())
+				.endsWith("-001");
+			assertThat(admin.mutate("POST", path, Map.of("requestId", UUID.randomUUID(),
+				"branchId", branch, "receivedDate", today.plusDays(1).toString())).statusCode()).isEqualTo(400);
+			assertThat(admin.mutate("POST", path, Map.of("requestId", UUID.randomUUID(),
+				"branchId", branch, "receivedDate", "1969-12-31")).statusCode()).isEqualTo(400);
+			viewer.login("reference-user", List.of("STOCK_RECEIVE"), OidcTestProvider.Fault.NONE);
+			assertThat(admin.mutate("POST", "/api/users", Map.of("username", "reference.user", "fullName", "Receiver",
+				"subject", "reference-user", "allBranches", false, "branchIds", List.of(branch))).statusCode()).isEqualTo(201);
+			viewer.login("reference-user", List.of("STOCK_RECEIVE"), OidcTestProvider.Fault.NONE);
+			assertThat(viewer.mutate("POST", path, request).statusCode()).isEqualTo(409);
+			assertThat(viewer.mutate("POST", path, Map.of("requestId", UUID.randomUUID(),
+				"branchId", other, "receivedDate", today.toString())).statusCode()).isEqualTo(403);
+			viewer.login("reference-user", List.of("STOCK_VIEW"), OidcTestProvider.Fault.NONE);
+			assertThat(viewer.mutate("POST", path, request).statusCode()).isEqualTo(403);
+			assertThat(anonymous.mutate("POST", path, request).statusCode()).isIn(401, 403);
+			jdbc.update("UPDATE branches SET active = false WHERE id = ?", UUID.fromString(other));
+			assertThat(admin.mutate("POST", path, Map.of("requestId", UUID.randomUUID(),
+				"branchId", other, "receivedDate", today.toString())).statusCode()).isEqualTo(400);
+			assertThat(count("stock_operations")).isZero();
+		}
+	}
+
+	@Test
+	void generatedReferencesSkipExistingDeliveryNamesAndRemainEditableOnPosting() throws Exception {
+		try (var admin = browser()) {
+			admin.adminLogin();
+			var branch = branch(admin, "MAIN");
+			var product = product(admin);
+			var date = today.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+			var existing = new java.util.HashMap<>(receipt(branch, List.of(line(product, "KG", "1", "OLD-LOT"))));
+			existing.put("source", "DEL-MAIN-" + date + "-001");
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", existing).statusCode()).isEqualTo(201);
+			var generated = admin.body(admin.mutate("POST", "/api/inventory/receipt-references",
+				Map.of("requestId", UUID.randomUUID(), "branchId", branch, "receivedDate", today.toString())))
+				.get("reference").asText();
+			assertThat(generated).isEqualTo("DEL-MAIN-" + date + "-002");
+			var automatic = new java.util.HashMap<>(receipt(branch, List.of(line(product, "KG", "1", generated + "-01"))));
+			automatic.put("source", generated);
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", automatic).statusCode()).isEqualTo(201);
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", automatic).statusCode()).isEqualTo(201);
+			assertThat(admin.body(admin.get("/api/inventory/batches?search=" + generated)).get("batches").get(0)
+				.get("lotCode").asText()).isEqualTo(generated + "-01");
+			var overridden = new java.util.HashMap<>(receipt(branch, List.of(line(product, "KG", "2", "SUPPLIER-LOT"))));
+			overridden.put("source", "Supplier invoice 123");
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", overridden).statusCode()).isEqualTo(201);
+			assertThat(admin.mutate("POST", "/api/inventory/receipts", overridden).statusCode()).isEqualTo(201);
+			assertThat(count("stock_operations")).isEqualTo(3);
+			assertThat(admin.body(admin.get("/api/inventory/batches?search=SUPPLIER-LOT")).get("batches").size()).isEqualTo(1);
+		}
+	}
+
+	@Test
 	void oneDeliveryCanReceiveDistinctGradesOfTheSameProductAndLotWithoutChangingHistoricGrades() throws Exception {
 		try (var admin = browser()) {
 			admin.adminLogin();
