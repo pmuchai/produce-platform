@@ -241,7 +241,8 @@ class CatalogueBrowserTests extends OidcTestSupport {
 		chrome.command("Emulation.setDeviceMetricsOverride", Map.of(
 			"width", 1536, "height", 1040, "deviceScaleFactor", 1, "mobile", false));
 		navigateSidebar(chrome, "dashboard", "/home");
-		chrome.await("document.querySelectorAll('.dashboard-kpis > article').length === 6 && document.querySelectorAll('.chart-visual > svg').length === 3");
+		chrome.await("document.querySelectorAll('.dashboard-kpis > article').length === 7 && document.querySelectorAll('.chart-visual > svg').length === 3");
+		assertThat(chrome.evaluate("document.querySelector('#stock-losses-card').innerText").asText()).contains("Spoilage / stock losses", "spoilage entries");
 		chrome.await("[...document.querySelectorAll('.sidebar summary svg, .kpi-heading svg')].every(icon => icon.getBBox().width > 0)");
 		assertThat(chrome.evaluate("document.querySelector('#expenses-card h2').textContent").asText()).isEqualTo("Total expenses");
 		assertThat(chrome.evaluate("document.querySelector('#current-stock').innerText").asText()).contains("Live", "Edited UI Product");

@@ -18,11 +18,13 @@ class DashboardSummaryTests {
 		var kes = total("KES", "100", "60", "12.34", "2", "25.66");
 		var usd = total("USD", "200", "80", "5", "0", "115");
 		var summary = DashboardSummary.build("USD", "KES", List.of(), null, null, report(kes, usd), report());
-		assertThat(summary.metrics()).hasSize(5);
+		assertThat(summary.metrics()).hasSize(6);
 		assertThat(summary.metrics().get(0).amount()).isEqualByComparingTo("200");
 		assertThat(summary.metrics().get(3).amount()).isEqualByComparingTo("5");
 		assertThat(summary.expenses()).isEqualTo("5");
 		assertThat(summary.netMargin()).isEqualTo("57.5%");
+		assertThat(summary.metrics().stream().filter(metric -> metric.id().equals("stock-losses-card")).findFirst().orElseThrow()
+			.amount()).isEqualByComparingTo("0");
 		assertThatThrownBy(() -> DashboardSummary.build("NOT_A_CURRENCY", "KES", List.of(), null, null, report(kes, usd), report()))
 			.isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
 	}
@@ -46,6 +48,8 @@ class DashboardSummaryTests {
 		assertThat(profit.display()).isEqualTo("Unavailable");
 		assertThat(profit.comparison()).isEqualTo("Comparison unavailable");
 		assertThat(summary.stockLosses()).isEqualTo("Unknown");
+		assertThat(summary.metrics().stream().filter(metric -> metric.id().equals("stock-losses-card")).findFirst().orElseThrow()
+			.amount()).isNull();
 		assertThat(summary.netMargin()).isEqualTo("--");
 	}
 

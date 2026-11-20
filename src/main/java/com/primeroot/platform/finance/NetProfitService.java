@@ -62,6 +62,22 @@ public class NetProfitService {
 		return new NetProfitReport(rows, totals, page, count, options);
 	}
 
+	public long spoilageCount(DashboardPeriod period, String currency) {
+		var actor = access.requirePermission(Permission.PROFIT_VIEW);
+		var visible = actor.isAllBranches() ? branches.findAllByOrderByCode() : branches.findAccessibleBranches(actor.getId());
+		var ids = visible.stream().map(Branch::getId).toList();
+		if (ids.isEmpty()) return 0;
+		var params = new MapSqlParameterSource().addValue("branches", ids).addValue("currency", currency)
+			.addValue("from", java.sql.Timestamp.from(period.from())).addValue("until", java.sql.Timestamp.from(period.until()));
+		return jdbc.queryForObject("""
+			SELECT COUNT(*) FROM stock_movements m JOIN stock_batches b ON b.id = m.batch_id
+			JOIN stock_operations o ON o.id = m.operation_id
+			WHERE b.branch_id IN (:branches) AND (b.currency = :currency OR b.currency IS NULL)
+			AND m.kind = 'SPOILAGE' AND m.reversal_of IS NULL
+			AND o.posted_at >= :from AND o.posted_at < :until
+			""", params, Long.class);
+	}
+
 	private String events(MapSqlParameterSource params) {
 		String scale = "CASE WHEN b.currency IS NULL THEN 2 ";
 		for (var code : jdbc.queryForList("SELECT DISTINCT currency FROM stock_batches WHERE branch_id IN (:branches) AND currency IS NOT NULL",

@@ -76,6 +76,9 @@ public record DashboardSummary(String currency, List<String> currencies, List<Me
 			metrics.add(metric("cogs-card", "COGS", "coins", cost, beforeCost, code, true));
 			metrics.add(metric("profit-card", "Gross profit", "leaf", gross, beforeGross, code, false));
 			metrics.add(metric("expenses-card", "Total expenses", "receipt", financial.expenses(), priorFinancial.expenses(), code, true));
+			metrics.add(metric("stock-losses-card", "Spoilage / stock losses", "alert",
+				unknownLoss(profit, financial) ? null : financial.stockLosses(),
+				unknownLoss(priorProfit, priorFinancial) ? null : priorFinancial.stockLosses(), code, true));
 			metrics.add(metric("net-profit-card", "Net profit", "trend", financial.netProfit(), priorFinancial.netProfit(), code, false));
 		}
 		String margin = financial.netProfit() == null || financial.revenue().signum() <= 0 ? "--"
@@ -84,6 +87,11 @@ public record DashboardSummary(String currency, List<String> currencies, List<Me
 			.anyMatch(t -> "UNKNOWN".equals(t.currency()) && t.unknownCosts() > 0);
 		return new DashboardSummary(code, List.copyOf(codes), List.copyOf(metrics), chart,
 			format(financial.expenses(), code), unknownLoss ? "Unknown" : format(financial.stockLosses(), code), margin);
+	}
+
+	private static boolean unknownLoss(NetProfitReport report, NetProfitReport.Total total) {
+		return total.unknownCosts() > 0 || report != null && report.totals().stream()
+			.anyMatch(t -> "UNKNOWN".equals(t.currency()) && t.unknownCosts() > 0);
 	}
 
 	private static NetProfitReport.Total financial(NetProfitReport report, String code) {

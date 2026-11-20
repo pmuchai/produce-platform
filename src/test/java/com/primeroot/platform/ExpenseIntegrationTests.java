@@ -184,11 +184,15 @@ class ExpenseIntegrationTests extends OidcTestSupport {
 			assertThat(scoped.get("/ui/reports/net-profit").body()).contains("12.34", "Net profit after expenses and losses")
 				.doesNotContain("id=\"nav-expenses\"");
 			assertThat(scoped.get("/home").body()).contains("id=\"net-profit-card\"", "id=\"expenses-card\"",
-				"data-amount=\"12.34\"", "data-amount=\"7.66\"");
+				"data-amount=\"12.34\"", "data-amount=\"7.66\"", "id=\"stock-losses-card\"",
+				"data-amount=\"30.00\"", "data-spoilage-count=\"1\"");
+			assertThat(scoped.get("/home?currency=USD").body()).contains("data-spoilage-count=\"0\"");
+			assertThat(scoped.get("/home?month=2024-01").body()).contains("data-spoilage-count=\"0\"");
 			var spoilageMovement = admin.body(loss).get("movements").get(0).get("id").asText();
 			assertThat(admin.mutate("POST", "/api/inventory/reversals", Map.of("requestId", UUID.randomUUID(), "branchId", branch,
 				"movementId", spoilageMovement, "reason", "Spoilage entered in error")).statusCode()).isEqualTo(200);
 			assertThat(total(scoped.body(scoped.get(reportUrl(today, today))), "KES").get("stockLosses").asText()).isEqualTo("10.00");
+			assertThat(scoped.get("/home").body()).contains("data-amount=\"10.00\"", "data-spoilage-count=\"1\"");
 			var saleId = seller.body(sale).get("id").asText();
 			assertThat(admin.mutate("POST", "/api/sales/" + saleId + "/void", Map.of("requestId", UUID.randomUUID(),
 				"reason", "Full return", "returnedAndRefunded", true)).statusCode()).isEqualTo(200);

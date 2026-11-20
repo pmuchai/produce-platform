@@ -148,6 +148,9 @@ public class WorkspaceController {
 		}
 		var overview = DashboardSummary.build(currency, businessCurrency, charts, currentSales, priorSales, currentProfit, priorProfit);
 		model.addAttribute("overview", overview);
+		if (currentProfit != null) {
+			model.addAttribute("spoilageCount", netProfit.spoilageCount(period, overview.currency()));
+		}
 		if (currentSales != null) {
 			model.addAttribute("soldQuantities", DashboardSummary.quantities(salesReports.quantities(period), overview.currency()));
 		}
