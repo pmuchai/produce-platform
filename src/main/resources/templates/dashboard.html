@@ -40,6 +40,12 @@
         <span class="currency-code" th:if="${metric.amount != null}" th:text="${overview.currency}"></span>
         <strong th:text="${metric.display}"></strong>
       </p>
+      <p th:if="${metric.id == 'stock-losses-card'}" class="kpi-comparison neutral"
+        th:attr="data-spoilage-count=${spoilageCount}"
+        title="Spoilage entries posted in this period, including entries later reversed. Amount is net stock losses, including transfer losses and reversals.">
+        <span th:text="${spoilageCount} + ' spoilage entries'"></span>
+        <a th:if="${canStock}" class="report-link" th:href="@{/ui/reports/stock-losses(start=${period.start},end=${period.end})}">View losses</a>
+      </p>
       <p class="kpi-comparison" th:classappend="${metric.favorable ? 'favorable' : 'neutral'}" th:title="${metric.comparisonTitle}">
         <svg th:if="${metric.amount != null}" th:replace="~{layout :: icon(${metric.increase ? 'up' : 'down'})}"></svg>
         <span th:text="${metric.comparison}"></span><small>vs previous period</small>
