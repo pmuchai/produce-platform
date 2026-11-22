@@ -7,5 +7,3 @@ CREATE TABLE receipt_reference_reservations (
     reference VARCHAR(120) NOT NULL UNIQUE,
     UNIQUE (branch_id, received_date, sequence_number)
 );
-
-CREATE INDEX ix_stock_operation_source ON stock_operations(source);
